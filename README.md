@@ -1,3 +1,11 @@
+> [!WARNING]
+> **This is a fork for one camera: the Canon EOS 6D Mark II, firmware 1.1.1 (branch `6d2`).**
+> Magic Lantern on the 6D Mark II (DIGIC 7) is experimental, and this build has been tried on one camera: use it at your own risk.
+> The zip has everything, Magic Lantern included: unzip it onto a card formatted in the camera and run *Firmware ver.* → update once
+> (`M-FILM-README.txt` in the zip). What differs from the original: [ml-dev/fork/ml-patches/6D2.111](ml-dev/fork/ml-patches/6D2.111/README.md).
+> For every other camera, use the original [HNGSeries/mfilm-canon-film-simulation](https://github.com/HNGSeries/mfilm-canon-film-simulation),
+> and report this build's problems [here](../../issues), not there.
+
 <div align="center">
 
 <img src="docs/images/mfilm.png" width="112" alt="M-Film">

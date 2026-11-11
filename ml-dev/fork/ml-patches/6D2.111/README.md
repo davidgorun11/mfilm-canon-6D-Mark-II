@@ -12,13 +12,15 @@ docker build -t mfilm-build ml-dev/fork/ml-patches/6D2.111
 docker run --rm -v "$PWD:/w" -w /w mfilm-build bash ml-dev/build_fork.sh 6D2.111
 ```
 
-The card files end up in `ml-dev/out/fork-6D2.111/`. Install them as `ml-dev/CAMERA-README.txt` says.
+The card files end up in `ml-dev/out/fork-6D2.111/`. The release zip is those files plus `M-FILM-README.txt` from this folder
+(the install steps for the 6D Mark II, in place of `ml-dev/CAMERA-README.txt`), `LICENSE.txt` and `THIRD_PARTY.txt`.
 
 | File | What it is |
 |---|---|
 | `0001-6D2-film-mode.patch` | the Magic Lantern changes for the 6D Mark II, on the base `ed3e7c0`: hooks, an RGBA bitmap palette of 256 entries, symbols the module needs, property whitelist |
 | `module.mk` | the film OS module's Makefile for the Cortex-A9 (ARM mode, `-mword-relocations`); the maths come from `autoexec.bin` through `6D2_111.sym` |
 | `Dockerfile` | everything `build_fork.sh` needs |
+| `M-FILM-README.txt` | the install steps that go in the zip |
 
 ## What's different from upstream
 
