@@ -24,6 +24,7 @@ From the [latest release](../../releases/latest) (or the newest run under *Actio
 | Canon EOS 5D Mark III (firmware 1.1.3) | 1.1.3 | `M-Film-camera-5D3.113.zip` |
 | Canon EOS 5D Mark III (firmware 1.2.3) | 1.2.3 | `M-Film-camera-5D3.123.zip` |
 | Canon EOS 6D | 1.1.6 | `M-Film-camera-6D.116.zip` |
+| Canon EOS 6D Mark II | 1.1.1 | `M-Film-camera-6D2.111.zip` |
 | Canon EOS 50D | 1.0.9 | `M-Film-camera-50D.109.zip` |
 | Canon EOS 60D | 1.1.1 | `M-Film-camera-60D.111.zip` |
 | Canon EOS 70D | 1.1.2 | `M-Film-camera-70D.112.zip` |

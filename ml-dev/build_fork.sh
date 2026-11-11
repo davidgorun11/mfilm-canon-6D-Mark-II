@@ -139,6 +139,8 @@ if [ -n "$MODULE" ]; then
     cp "$HERE"/fork/module/{Makefile,README.rst} "$HERE"/fork/src/filmroll.{c,h} "$HERE"/fork/src/filmos_mod.h \
        "$HERE"/filmos/fos*.{c,h} "$SRC"/src/fos_version.h "$MOD/"
     sed -i 's/\r$//' "$MOD"/*.c "$MOD"/*.h
+    # a camera whose module needs its own build (the 6D Mark II's Cortex-A9: fork/ml-patches/6D2.111/module.mk)
+    [ -f "$HERE/fork/ml-patches/$PLAT/module.mk" ] && cp "$HERE/fork/ml-patches/$PLAT/module.mk" "$MOD/Makefile"
     OBJS="filmroll.o fos_gfx.o fos_film.o fos_ui.o fos_shelf.o fos_pages.o fos_hud.o fos_print.o"
     if [ -n "$NODARK" ]; then OBJS="$OBJS fos_nodark.o"; else OBJS="$OBJS fos_dark.o fos_dev.o fos_lab.o fos_looks.o fos_jpeg.o"; fi
     make -C "$MOD" FILMOS_PLATFORM="$PLAT" FILMOS_OBJS="$OBJS" FATAL_WARNINGS=y >> "$LOG" 2>&1 || { tail -40 "$LOG"; echo "the film OS module didn't build, see $LOG"; exit 1; }

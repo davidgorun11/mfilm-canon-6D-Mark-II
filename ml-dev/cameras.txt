@@ -37,7 +37,7 @@ EOSM.202      working   727072      Canon EOS M | From 0.2 the film OS loads as 
 7D2.112       no        -           Canon EOS 7D Mark II
 5D4.133       no        -           Canon EOS 5D Mark IV
 5DSR.112      no        -           Canon EOS 5DS R
-6D2.111       no        -           Canon EOS 6D Mark II
+6D2.111       working   -           Canon EOS 6D Mark II | This fork only (branch 6d2), on Magic Lantern's DIGIC 7 port: the film OS as a module, built for the Cortex-A9 (fork/ml-patches/6D2.111). Tried on one camera: shoots, develops Small, Medium and Large prints. | 
 850D.100      no        -           Canon EOS 850D / Rebel T8i
 M50.110       no        -           Canon EOS M50
 R.180         no        -           Canon EOS R

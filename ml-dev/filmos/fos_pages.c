@@ -12,6 +12,11 @@
 
 static float absf(float v) { return v < 0 ? -v : v; }
 
+static int roll_active()
+{
+    return ui_roll.loaded && ui_roll.shot < ui_roll.exposures;
+}
+
 /* the highlight behind the selected row of a list */
 static void row_highlight(int x, int w, float y, int h)
 {
@@ -91,16 +96,8 @@ static void film_card()
 
 /* ---------------------------------------------------------------- home */
 
-#define PAGE_SETTINGS 0             /* the settings pages' first (their list is further down) */
+enum { H_FILM, H_ROLL, H_DARK, H_FINDER, H_LENS, H_SYSTEM, H_COUNT };
 
-/* Home's rows follow the roll: the first is the thing to do next (load a
- * film, look at the roll you are shooting, develop the one you finished),
- * drawn larger; under it the few other places. */
-enum { HA_LOAD, HA_ROLL, HA_END, HA_FILM, HA_DARK, HA_SETTINGS };
-#define H_MAX 4
-
-static int home_rows[H_MAX], home_n;
-static int home_y[H_MAX + 1];       /* each row's top, and the last one's bottom */
 static int home_sel;
 static struct spring home_hl;
 static int home_t, home_spun;
@@ -110,42 +107,16 @@ static int home_list = 1;           /* ... the list on the right */
 
 #define LIST_X   312
 #define LIST_W   384
-#define ROW_H    70
-#define ROW_H1   96                 /* the first row */
-#define LIST_Y0  (home_y[0] - 2)
-#define LIST_Y1  (home_y[home_n] + 2)
-
-static int roll_done()
-{
-    return ui_roll.loaded && ui_roll.shot >= ui_roll.exposures;
-}
-
-static void home_layout(int want)
-{
-    home_n = 0;
-    if (!ui_roll.loaded) home_rows[home_n++] = HA_LOAD;
-    else if (roll_done()) { home_rows[home_n++] = HA_END; home_rows[home_n++] = HA_FILM; }
-    else { home_rows[home_n++] = HA_ROLL; home_rows[home_n++] = HA_FILM; }
-    home_rows[home_n++] = HA_DARK;
-    home_rows[home_n++] = HA_SETTINGS;
-    int total = ROW_H1 + (home_n - 1) * ROW_H;
-    home_y[0] = CARD_Y + (CARD_H - total) / 2;
-    for (int i = 0; i < home_n; i++) home_y[i + 1] = home_y[i] + (i ? ROW_H : ROW_H1);
-    /* the row asked for (HOME_*), or the first */
-    home_sel = 0;
-    for (int i = 0; i < home_n; i++)
-        if ((want == HOME_FILM && home_rows[i] == HA_FILM) || (want == HOME_DARK && home_rows[i] == HA_DARK)
-            || (want == HOME_SETTINGS && home_rows[i] == HA_SETTINGS))
-            home_sel = i;
-}
+#define LIST_Y   56
+#define ROW_H    64
 
 static void home_bake()
 {
     ui_bg_plain();
     ui_to_bg(1);
     ui_status_bar("HOME");
-    struct hint h[] = { { "^v", "Select" }, { "SET", "Open" }, { "INFO", "Settings" }, { "PLAY", "Prints" }, { "MENU", "Camera" } };
-    ui_hints(h, 5);
+    struct hint h[] = { { "^v", "Select" }, { "SET", "Open" }, { "PLAY", "Prints" }, { "MENU", "Camera" } };
+    ui_hints(h, 4);
     film_card();
     ui_to_bg(0);
 }
@@ -153,7 +124,7 @@ static void home_bake()
 void home_enter(int arg)
 {
     fos_port_roll(&ui_roll);
-    home_layout(arg);
+    if (arg >= 0 && arg < H_COUNT) home_sel = arg;
     home_hl.x = home_sel; home_hl.v = 0;
     home_t = home_spun = 0;
     home_full = 1;
@@ -161,16 +132,16 @@ void home_enter(int arg)
     home_bake();
 }
 
-static void home_open(int action)
+static void home_open(int i)
 {
-    switch (action)
+    switch (i)
     {
-        case HA_LOAD:
-        case HA_FILM:     ui_go(SCR_SHELF, 1, GO_PUSH); break;
-        case HA_ROLL:     ui_go(SCR_ROLL, 0, GO_PUSH); break;
-        case HA_END:      ui_go(SCR_ROLL, 1, GO_PUSH); break;      /* with its question up */
-        case HA_DARK:     ui_go(SCR_DARK, 0, GO_PUSH); break;
-        case HA_SETTINGS: ui_go(SCR_PAGE, PAGE_SETTINGS, GO_PUSH); break;
+        case H_FILM:   ui_go(SCR_SHELF, 1, GO_PUSH); break;
+        case H_ROLL:   ui_go(SCR_ROLL, 0, GO_PUSH); break;
+        case H_DARK:   ui_go(SCR_DARK, 0, GO_PUSH); break;
+        case H_FINDER: ui_go(SCR_PAGE, 0, GO_PUSH); break;
+        case H_LENS:   ui_go(SCR_PAGE, 1, GO_PUSH); break;
+        case H_SYSTEM: ui_go(SCR_PAGE, 2, GO_PUSH); break;
     }
 }
 
@@ -179,16 +150,13 @@ void home_key(int k)
     switch (k)
     {
         case FK_UP: case FK_WHEEL_L:
-            home_sel = (home_sel + home_n - 1) % home_n;
+            home_sel = (home_sel + H_COUNT - 1) % H_COUNT;
             break;
         case FK_DOWN: case FK_WHEEL_R:
-            home_sel = (home_sel + 1) % home_n;
+            home_sel = (home_sel + 1) % H_COUNT;
             break;
         case FK_SET: case FK_RIGHT:
-            home_open(home_rows[home_sel]);
-            break;
-        case FK_INFO:
-            home_open(HA_SETTINGS);
+            home_open(home_sel);
             break;
         case FK_MENU: case FK_HOME:
             ui_leave();
@@ -198,7 +166,7 @@ void home_key(int k)
             break;
     }
     home_list = 1;
-    ui_damage(LIST_Y0, LIST_Y1);
+    ui_damage(LIST_Y, LIST_Y + H_COUNT * ROW_H);
 }
 
 int home_update(int dt)
@@ -208,7 +176,7 @@ int home_update(int dt)
     if (spring_step(&home_hl, home_sel, dt, 3.4f, 0.82f))
     {
         home_list = 1;
-        ui_damage(LIST_Y0, LIST_Y1);
+        ui_damage(LIST_Y, LIST_Y + H_COUNT * ROW_H);
         moving = 1;
     }
     /* the canister keeps turning, slowly enough that a dozen frames a
@@ -225,80 +193,47 @@ int home_update(int dt)
     return moving;
 }
 
-static const char *hud_names[] = { "Classic", "Minimal", "Rangefinder", "Clean", "Off" };
-static const char *const size_letters[] = { "S", "M", "L" };
-
-static void home_row(int i, int selected)
+static void home_row(int i, int y, int selected)
 {
-    int action = home_rows[i], y = home_y[i], h = home_y[i + 1] - y, first = i == 0;
-    const char *title = "";
-    int icon = ICON_FILM;
-    char sub[96], tb[48];
-    int left = ui_roll.exposures - ui_roll.shot;
-    switch (action)
+    static const char *titles[H_COUNT] = { "Film", "Roll", "Darkroom", "Viewfinder", "Lens", "System" };
+    static const int icons[H_COUNT] = { ICON_FILM, ICON_ROLL, ICON_PRINTS, ICON_FINDER, ICON_LENS, ICON_SYSTEM };
+    char sub[80];
+    char ap[8];
+    switch (i)
     {
-        case HA_LOAD:
-            title = "Load film";
-            snprintf(sub, sizeof(sub), "Choose a stock and start shooting");
+        case H_FILM:
+            snprintf(sub, sizeof(sub), "%s", roll_active() ? (ui_realistic() ? "Change film (rewinds this roll)" : "Change film (finishes this roll)") : "Choose a stock and load a roll");
             break;
-        case HA_ROLL:
-            icon = ICON_ROLL;
-            snprintf(tb, sizeof(tb), "%s " T_DOT " %d of %d", fos_films[ui_roll.film].name, ui_roll.shot, ui_roll.exposures);
-            title = tb;
-            snprintf(sub, sizeof(sub), "%d left " T_DOT " the last frames " T_DOT " %s the roll", left, ui_realistic() ? "rewind" : "finish");
+        case H_ROLL:
+            if (ui_roll.loaded)
+                snprintf(sub, sizeof(sub), "Roll %03d " T_DOT " %d of %d", ui_roll.number, ui_roll.shot, ui_roll.exposures);
+            else
+                snprintf(sub, sizeof(sub), "No film in the camera");
             break;
-        case HA_END:
-            icon = ICON_PRINTS;
-            snprintf(tb, sizeof(tb), ui_realistic() ? "Rewind roll %03d" : "Develop roll %03d", ui_roll.number);
-            title = tb;
-            snprintf(sub, sizeof(sub), "%s " T_DOT " all %d frames shot", fos_films[ui_roll.film].name, ui_roll.exposures);
-            break;
-        case HA_FILM:
-            title = roll_done() ? "Load a new film" : "Change film";
-            snprintf(sub, sizeof(sub), "%s", roll_done() ? "This roll waits in the darkroom" :
-                     ui_realistic() ? "Rewinds this roll first" : "Finishes this roll first");
-            break;
-        case HA_DARK:
-            icon = ICON_PRINTS;
-            title = "Darkroom";
+        case H_DARK:
             snprintf(sub, sizeof(sub), "Develop your rolls " T_DOT " your prints");
             break;
-        case HA_SETTINGS:
-            icon = ICON_SYSTEM;
-            title = "Settings";
-            snprintf(sub, sizeof(sub), "%s viewfinder " T_DOT " %s prints " T_DOT " %s",
-                     hud_names[fos_port_get(FS_HUD) ? fos_clamp(fos_port_get(FS_HUD_STYLE), 0, FOS_HUD_STYLES - 1) : FOS_HUD_STYLES],
-                     size_letters[fos_clamp(fos_port_get(FS_SIZE), 0, FOS_SIZES - 1)], ui_realistic() ? "Realistic" : "Basic");
+        case H_FINDER:
+            snprintf(sub, sizeof(sub), "HUD %s " T_DOT " wind %s", fos_port_get(FS_HUD) ? "on" : "off",
+                     fos_port_get(FS_WIND) == 0 ? "off" : fos_port_get(FS_WIND) == 1 ? "reminder" : "locks shutter");
+            break;
+        case H_LENS:
+            fos_format_fstop(ap, sizeof(ap), fos_port_get(FS_FSTOP));
+            if (fos_port_lens_manual())
+                snprintf(sub, sizeof(sub), "Manual lens " T_DOT " f/%s", ap);
+            else
+                snprintf(sub, sizeof(sub), "%s", fos_port_lens_name());
+            break;
+        case H_SYSTEM:
+            snprintf(sub, sizeof(sub), "%s mode " T_DOT " screen colour " T_DOT " Canon menu", ui_realistic() ? "Realistic" : "Basic");
             break;
     }
     int x = LIST_X + 20;
-    if (first)
-    {
-        /* the thing to do next: framed in amber, its title large */
-        fos_rrect_line(cv, LIST_X, y + 4, LIST_W, h - 8, 12, 1, selected ? C_ACCENT : C_ACCENT2, OPAQUE);
-        ui_icon(icon, x + 14, y + h / 2, C_ACCENT, OPAQUE);
-        fos_text(cv, &fos_font_lg, x + 46, y + 46, title, C_TEXT, OPAQUE, 0);
-        fos_text(cv, &fos_font_sm, x + 46, y + 70, sub, C_TEXT2, OPAQUE, 0);
-        fos_tri(cv, LIST_X + LIST_W - 22, y + h / 2, 9, 0, C_ACCENT, OPAQUE);
-        return;
-    }
-    ui_icon(icon, x + 14, y + h / 2, selected ? C_ACCENT : C_TEXT3, OPAQUE);
-    fos_text(cv, &fos_font_mdb, x + 46, y + 31, title, selected ? C_TEXT : C_TEXT2, OPAQUE, 0);
-    fos_text(cv, &fos_font_sm, x + 46, y + 52, sub, C_TEXT3, OPAQUE, 0);
-    fos_tri(cv, LIST_X + LIST_W - 22, y + h / 2, 8, 0, selected ? C_TEXT2 : FC(RAMP_GRAY, 60), OPAQUE);
-}
-
-static void home_list_draw()
-{
-    /* the highlight between the rows it is passing, each of its own height */
-    float f = clampf(home_hl.x, 0, home_n - 1);
-    int a = (int) f, b = a + 1 < home_n ? a + 1 : a;
-    float t = f - a;
-    float y = home_y[a] + (home_y[b] - home_y[a]) * t;
-    float h = (home_y[a + 1] - home_y[a]) + ((home_y[b + 1] - home_y[b]) - (home_y[a + 1] - home_y[a])) * t;
-    row_highlight(LIST_X, LIST_W, y + 4, (int) (h + 0.5f) - 8);
-    for (int i = 0; i < home_n; i++)
-        home_row(i, i == home_sel);
+    fcol ic = selected ? C_ACCENT : C_TEXT3;
+    ui_icon(icons[i], x + 14, y + ROW_H / 2, ic, OPAQUE);
+    fos_text(cv, &fos_font_mdb, x + 46, y + 28, titles[i], selected ? C_TEXT : C_TEXT2, OPAQUE, 0);
+    fos_text(cv, &fos_font_sm, x + 46, y + 49, sub, C_TEXT3, OPAQUE, 0);
+    fos_tri(cv, LIST_X + LIST_W - 22, y + ROW_H / 2, 8, 0, selected ? C_TEXT2 : FC(RAMP_GRAY, 60), OPAQUE);
 }
 
 void home_draw()
@@ -321,11 +256,14 @@ void home_draw()
         }
         if (home_list)
         {
-            ui_bg_restore(LIST_X, LIST_Y0, LIST_W, LIST_Y1 - LIST_Y0);
-            fos_clip(cv, LIST_X, LIST_Y0, LIST_X + LIST_W, LIST_Y1);
-            home_list_draw();
+            int ly1 = LIST_Y + H_COUNT * ROW_H;
+            ui_bg_restore(LIST_X, LIST_Y, LIST_W, ly1 - LIST_Y);
+            fos_clip(cv, LIST_X, LIST_Y, LIST_X + LIST_W, ly1);
+            row_highlight(LIST_X, LIST_W, LIST_Y + home_hl.x * ROW_H, ROW_H);
+            for (int i = 0; i < H_COUNT; i++)
+                home_row(i, LIST_Y + i * ROW_H, i == home_sel);
             *cv = save;
-            ui_damage(LIST_Y0, LIST_Y1);
+            ui_damage(LIST_Y, ly1);
             home_list = 0;
         }
         return;
@@ -337,48 +275,42 @@ void home_draw()
     ui_damage_all();
     ui_bg_restore(0, 0, FOS_W, FOS_H);
     card_canister(home_t);
-    home_list_draw();
+    row_highlight(LIST_X, LIST_W, LIST_Y + home_hl.x * ROW_H, ROW_H);
+    for (int i = 0; i < H_COUNT; i++)
+        home_row(i, LIST_Y + i * ROW_H, i == home_sel);
 }
 
 /* ---------------------------------------------------------------- settings pages */
 
 enum { IT_TOGGLE, IT_CHOICE, IT_FSTOP, IT_ACTION, IT_INFO, IT_LEVEL, IT_PAGE };
 
-/* the pages: Settings is the few things worth changing, the rest are a step
- * further in */
-enum { PAGE_LENS = PAGE_SETTINGS + 1, PAGE_ADVANCED, PAGE_SCREEN, PAGE_COUNT };
+#define PAGE_SYSTEM  2
+#define PAGE_SCREEN  3
+#define SYS_SCREEN_ROW 2                /* where Screen colour sits in System */
 #define ACT_SCR_RESET 100               /* handled here, not by the port */
-/* the viewfinder as one choice: the HUD's looks, then Off (FS_HUD and FS_HUD_STYLE) */
-#define VS_FINDER     200
 
 struct item
 {
     const char *label;
     int kind;
-    int setting;                /* FS_*, VS_*, or FA_* for actions */
+    int setting;                /* FS_*, or FA_* for actions */
     const char *const *choices;
     int n;
     const char *help;
 };
 
+static const char *const wind_choices[] = { "Off", "Reminder", "Locks shutter" };
 static const char *const apkey_choices[] = { "Dial in Av", "Up / Down", "Menu only" };
 static const char *const start_choices[] = { "Off", "When no film", "Always" };
 static const char *const mode_choices[] = { "Basic", "Realistic" };
-static const char *const flip_choices[] = { "Auto", "Normal", "Upside down", "Mirrored" };
 static const char *const size_choices[] = { "Small", "Medium", "Large" };
 
-static const struct item settings_items[] =
+static const struct item finder_items[] =
 {
-    { "Viewfinder", IT_CHOICE, VS_FINDER, hud_names, FOS_HUD_STYLES + 1, "What shows over LiveView while you shoot." },
-    { "Exposure simulation", IT_TOGGLE, FS_EXPSIM, 0, 0, "On: LiveView shows the exposure you'll get. Off: bright, to focus a manual lens." },
-    { "Print size", IT_CHOICE, FS_SIZE, size_choices, FOS_SIZES, "How big the darkroom develops. Bigger prints zoom in further and take longer." },
-    { "Date stamp", IT_TOGGLE, FS_STAMP, 0, 0, "The day it was shot in the corner of each print, like a compact's data back." },
-    { "Film mode", IT_CHOICE, FS_MODE, mode_choices, 2, "Basic: a finished roll goes straight to the darkroom. Realistic: rewind it first." },
-    { "Manual lens", IT_PAGE, PAGE_LENS, 0, 0, "The aperture of an adapted lens, which the camera can't read." },
-    { "Advanced", IT_PAGE, PAGE_ADVANCED, 0, 0, "LEDs, wind lever, start up, screen colour, the debug log." },
-    { "Canon menu", IT_ACTION, FA_CANON_MENU, 0, 0, "Leave and open the camera's own menu (format card, RAW...)." },
-    { "About", IT_INFO, -2, 0, 0, FOS_NAME " by HNGSeries " T_DOT " Barlow typeface by Jeremy Tribby (SIL OFL)" },
-    { "Support " FOS_NAME, IT_INFO, -3, 0, 0, "Scan the code with your phone to buy the developer a coffee." },
+    { "Viewfinder HUD", IT_TOGGLE, FS_HUD, 0, 0, "Meter and LEDs over LiveView; on a DSLR, a top plate on the back screen too." },
+    { "LEDs on half-press", IT_TOGGLE, FS_LEDS, 0, 0, "Like a real SLR: the readout lights only while metering." },
+    { "Focusing screen", IT_TOGGLE, FS_FOCUS, 0, 0, "A split-image circle and microprism collar (decoration only)." },
+    { "Wind lever", IT_CHOICE, FS_WIND, wind_choices, 3, "After each frame press SET to wind on. Locking is experimental." },
 };
 
 static const struct item lens_items[] =
@@ -389,21 +321,20 @@ static const struct item lens_items[] =
     { "Aperture control", IT_CHOICE, FS_APKEYS, apkey_choices, 3, "How to turn the aperture ring in LiveView." },
 };
 
-static const struct item advanced_items[] =
+static const struct item system_items[] =
 {
-    { "LEDs on half-press", IT_TOGGLE, FS_LEDS, 0, 0, "Like a real SLR: the readout lights while metering, and when you turn a dial." },
-    { "Focusing screen", IT_TOGGLE, FS_FOCUS, 0, 0, "A split-image circle, or the rangefinder's patch (decoration only)." },
-    { "Wind lever", IT_TOGGLE, FS_WIND, 0, 0, "After each frame the viewfinder asks for SET, to wind on." },
-    { "Battery in the viewfinder", IT_TOGGLE, FS_HUD_BATT, 0, 0, "A small battery beside the readout." },
+    { "Film mode", IT_CHOICE, FS_MODE, mode_choices, 2, "Basic: a finished roll goes straight to the darkroom. Realistic: rewind it first." },
+    { "Print size", IT_CHOICE, FS_SIZE, size_choices, 3, "Small: the screen's 720x480. Medium 2080x1387, Large 3120x2080: slower, zoom in Prints." },
+    { "Date stamp", IT_TOGGLE, FS_STAMP, 0, 0, "The date in the corner of each print, in orange, as a data back burns it in." },
     { "Start screen", IT_CHOICE, FS_STARTUP, start_choices, 3, "The film shelf when the camera turns on." },
     { "Boot animation", IT_TOGGLE, FS_BOOTANIM, 0, 0, "The aperture opening on the name at power on." },
-    { "Page fade", IT_TOGGLE, FS_FADE, 0, 0, "A short fade between the shelf, the darkroom and the prints. Off: they change at once." },
-    { "Hide Canon's graphics", IT_TOGGLE, FS_CANON_OFF, 0, 0, "Canon's exposure scale and icons stay off the viewfinder. Its focus frame goes too." },
     { "Screen colour", IT_PAGE, PAGE_SCREEN, 0, 0, "Match these colours to what you see around you." },
-    { "Screen orientation", IT_CHOICE, FS_SCR_FLIP, flip_choices, 4, "Auto follows the hinge. Set one if the screen shows the wrong way round." },
     { "PLAY shows prints only", IT_TOGGLE, FS_PLAYLOCK, 0, 0, "Canon's playback would show frames the darkroom hasn't developed." },
     { "Re-apply film settings", IT_ACTION, FA_REAPPLY, 0, 0, "After changing picture style, white balance or ISO by hand." },
+    { "Canon menu", IT_ACTION, FA_CANON_MENU, 0, 0, "Leave and open the camera's own menu (format card, RAW...)." },
     { "Debug log", IT_TOGGLE, FS_DEBUG, 0, 0, "Writes ML/FILMROLL.LOG for troubleshooting." },
+    { "Support " FOS_NAME, IT_INFO, -3, 0, 0, "Scan the code with your phone to buy the developer a coffee." },
+    { "About", IT_INFO, -2, 0, 0, FOS_NAME " " T_DOT " Barlow typeface by Jeremy Tribby (SIL OFL)" },
 };
 
 static const char *const std_choices[] = { "Canon", "Rec.709" };
@@ -417,74 +348,16 @@ static const struct item screen_items[] =
     { "Reset", IT_ACTION, ACT_SCR_RESET, 0, 0, "Back to the colours as designed." },
 };
 
-#define NITEMS(a) ((int) (sizeof(a) / sizeof((a)[0])))
-#define P_KNOBS   14            /* one per row: more rows than any page has */
-
-static struct { const char *title; const char *sub; const struct item *items; int n; int parent; } pages[PAGE_COUNT] =
+static const struct { const char *title; const char *sub; const struct item *items; int n; } pages[] =
 {
-    { "Settings", "The viewfinder, the prints, the film mode", settings_items, NITEMS(settings_items), -1 },
-    { "Manual lens", "Aperture for adapted lenses", lens_items, NITEMS(lens_items), PAGE_SETTINGS },
-    { "Advanced", "The details, and what you set once", advanced_items, NITEMS(advanced_items), PAGE_SETTINGS },
-    { "Screen colour", "Live: the whole film OS changes as you go", screen_items, NITEMS(screen_items), PAGE_ADVANCED },
+    { "Viewfinder", "What you see in LiveView while you shoot", finder_items, 4 },
+    { "Lens", "Aperture for manual lenses", lens_items, 4 },
+    { "System", "Film mode, screen colour, start up and the Canon menu", system_items, 10 },
+    { "Screen colour", "Live: the whole film OS changes as you go", screen_items, 5 },
 };
 
 static int page, page_sel, page_top;
-static struct spring page_hl, page_scroll, knob[P_KNOBS];
-
-/* a row's value: the port's, or the viewfinder's two settings as one */
-static int pg_get(int setting)
-{
-    if (setting == VS_FINDER)
-        return fos_port_get(FS_HUD) ? fos_clamp(fos_port_get(FS_HUD_STYLE), 0, FOS_HUD_STYLES - 1) : FOS_HUD_STYLES;
-    return fos_port_get(setting);
-}
-
-static void pg_set(int setting, int v)
-{
-    if (setting == VS_FINDER)
-    {
-        fos_port_set(FS_HUD, v < FOS_HUD_STYLES);
-        if (v < FOS_HUD_STYLES) fos_port_set(FS_HUD_STYLE, v);
-        return;
-    }
-    fos_port_set(setting, v);
-}
-
-/* The pages without what this camera can't do (the port answers -1 for it:
- * screen orientation on a fixed screen, exposure simulation where Magic
- * Lantern can't set it), worked out once. */
-static struct item fitted[NITEMS(settings_items) + NITEMS(advanced_items)];
-
-static void pages_fit()
-{
-    static int done = 0;
-    if (done) return;
-    done = 1;
-    int n = 0;
-    for (int p = 0; p < PAGE_COUNT; p++)
-    {
-        if (p != PAGE_SETTINGS && p != PAGE_ADVANCED) continue;
-        const struct item *src = pages[p].items;
-        int count = pages[p].n, first = n;
-        for (int i = 0; i < count; i++)
-        {
-            if ((src[i].kind == IT_CHOICE || src[i].kind == IT_TOGGLE) && src[i].setting < VS_FINDER
-                && fos_port_get(src[i].setting) < 0) continue;
-            fitted[n++] = src[i];
-        }
-        pages[p].items = fitted + first;
-        pages[p].n = n - first;
-    }
-}
-
-/* the row of page p that leads to page child (0 if none does) */
-static int page_row_of(int p, int child)
-{
-    for (int i = 0; i < pages[p].n; i++)
-        if (pages[p].items[i].kind == IT_PAGE && pages[p].items[i].setting == child) return i;
-    return 0;
-}
-
+static struct spring page_hl, page_scroll, knob[8];
 static int help_fade;           /* ms since the selection changed */
 
 #define P_LIST_Y  118
@@ -528,12 +401,15 @@ static void page_bake()
     if (page == PAGE_SCREEN) ui_hints(hs, 3);
     else ui_hints(h, 4);
     fos_rrect(cv, PV_X, PV_Y, PV_W, PV_H, 16, FC(RAMP_GRAY, 15), OPAQUE);
+    static const char *captions[] = { "LIVEVIEW PREVIEW", "APERTURE", 0, "TEST CHART" };
+    if (captions[page])             /* System's panel captions itself */
+        fos_text_c(cv, &fos_font_xs, PV_X + PV_W / 2, PV_Y + PV_H - 14, captions[page], C_TEXT3, OPAQUE, 48);
     ui_to_bg(0);
 }
 
 static int item_value(const struct item *it)
 {
-    return it->setting >= 0 && it->kind != IT_ACTION && it->kind != IT_PAGE ? pg_get(it->setting) : 0;
+    return it->setting >= 0 && it->kind != IT_ACTION && it->kind != IT_PAGE ? fos_port_get(it->setting) : 0;
 }
 
 /* where an item's knob springs to: a switch 0 / 1, a slider its value */
@@ -545,17 +421,16 @@ static float knob_target(const struct item *it)
 
 void page_enter(int arg)
 {
-    pages_fit();
     /* from home: a page; between pages: page | row << 4 */
     if (ui_from() == SCR_HOME || ui_from() == SCR_PAGE)
     {
-        page = fos_clamp(arg & 15, 0, PAGE_COUNT - 1);
+        page = fos_clamp(arg & 15, 0, PAGE_SCREEN);
         page_sel = fos_clamp(arg >> 4, 0, pages[page].n - 1);
     }
     page_top = page_sel >= P_ROWS ? page_sel - P_ROWS + 1 : 0;
     page_hl.x = page_sel; page_hl.v = 0;
     page_scroll.x = page_top; page_scroll.v = 0;
-    for (int i = 0; i < pages[page].n && i < P_KNOBS; i++)
+    for (int i = 0; i < pages[page].n && i < 8; i++)
     {
         knob[i].x = knob_target(&pages[page].items[i]);
         knob[i].v = 0;
@@ -568,17 +443,17 @@ void page_enter(int arg)
 
 static void change(const struct item *it, int dir)
 {
-    int v = pg_get(it->setting);
+    int v = fos_port_get(it->setting);
     switch (it->kind)
     {
         case IT_TOGGLE:
-            pg_set(it->setting, !v);
+            fos_port_set(it->setting, !v);
             break;
         case IT_CHOICE:
-            pg_set(it->setting, fos_clamp(v + dir, 0, it->n - 1));
+            fos_port_set(it->setting, fos_clamp(v + dir, 0, it->n - 1));
             break;
         case IT_LEVEL:
-            pg_set(it->setting, fos_clamp(v + dir, -FOS_SCR_STEPS, FOS_SCR_STEPS));
+            fos_port_set(it->setting, fos_clamp(v + dir, -FOS_SCR_STEPS, FOS_SCR_STEPS));
             break;
         case IT_FSTOP:
         {
@@ -604,9 +479,10 @@ void page_key(int k)
     const struct item *items = pages[page].items;
     int n = pages[page].n;
     const struct item *it = &items[page_sel];
-    /* moving the selection redraws the list, the help and the preview (which
-     * shows the selected row); changing a value, list and preview */
-    int dirty = k == FK_UP || k == FK_DOWN || k == FK_WHEEL_L || k == FK_WHEEL_R ? D_LIST | D_HELP | D_PREV
+    /* moving the selection redraws the list and the help (and the lens,
+     * which shows the selected f-stop); changing a value, list and preview */
+    int dirty = k == FK_UP || k == FK_DOWN || k == FK_WHEEL_L || k == FK_WHEEL_R
+              ? D_LIST | D_HELP | (page == 1 || page == PAGE_SYSTEM ? D_PREV : 0)
               : k == FK_LEFT || k == FK_RIGHT || k == FK_SET ? D_LIST | D_PREV : D_ALL;
     switch (k)
     {
@@ -626,7 +502,7 @@ void page_key(int k)
         case FK_SET:
             if (it->kind == IT_TOGGLE) change(it, 0);
             else if (it->kind == IT_CHOICE)
-                pg_set(it->setting, (pg_get(it->setting) + 1) % it->n);
+                fos_port_set(it->setting, (fos_port_get(it->setting) + 1) % it->n);
             else if (it->kind == IT_FSTOP) change(it, 1);
             else if (it->kind == IT_PAGE) ui_go(SCR_PAGE, it->setting, GO_PUSH);
             else if (it->kind == IT_ACTION && it->setting == ACT_SCR_RESET)
@@ -646,11 +522,13 @@ void page_key(int k)
             }
             break;
         case FK_MENU:
-            if (pages[page].parent >= 0)
-                ui_go(SCR_PAGE, pages[page].parent | page_row_of(pages[page].parent, page) << 4, GO_POP);
-            else ui_go(SCR_HOME, HOME_SETTINGS, GO_POP);
+            if (page == PAGE_SCREEN) ui_go(SCR_PAGE, PAGE_SYSTEM | SYS_SCREEN_ROW << 4, GO_POP);
+            else ui_go(SCR_HOME, page + H_FINDER, GO_POP);
             break;
-        case FK_HOME: case FK_PLAY:
+        case FK_PLAY:                   /* PLAY: the prints, from any screen (the buttons, 2026-11-10) */
+            ui_go(SCR_PRINTS, 0, GO_FADE);
+            break;
+        case FK_HOME:                   /* Trash: back to the camera */
             ui_leave();
             break;
     }
@@ -664,11 +542,11 @@ int page_update(int dt)
     int dirty = 0;
     if (spring_step(&page_hl, page_sel, dt, 3.6f, 0.82f)) dirty |= D_LIST;
     if (spring_step(&page_scroll, page_top, dt, 3.0f, 0.95f)) dirty |= D_LIST;
-    for (int i = 0; i < pages[page].n && i < P_KNOBS; i++)
+    for (int i = 0; i < pages[page].n && i < 8; i++)
         if (spring_step(&knob[i], knob_target(&pages[page].items[i]), dt, 4.0f, 0.75f))
-            dirty |= D_LIST;
+            dirty |= D_LIST | (page == 0 ? D_PREV : 0);     /* the viewfinder preview follows the switches */
     if (help_fade < 400) { help_fade += dt; dirty |= D_HELP; }
-    if (page == PAGE_LENS)
+    if (page == 1)
     {
         const struct item *it = &pages[page].items[page_sel];
         int idx = it->setting == FS_LENS_WIDE ? fos_port_get(FS_LENS_WIDE) : fos_port_get(FS_FSTOP);
@@ -679,11 +557,6 @@ int page_update(int dt)
 }
 
 /* ---- the previews */
-
-static void preview_caption(const char *s)
-{
-    fos_text_c(cv, &fos_font_xs, PV_X + PV_W / 2, PV_Y + PV_H - 14, s, C_TEXT3, OPAQUE, 48);
-}
 
 /* a dusk scene through the viewfinder, with the HUD as set */
 static void preview_finder()
@@ -706,118 +579,36 @@ static void preview_finder()
         fos_convex(cv, q, 3, FC(RAMP_GRAY, 12), OPAQUE);
     }
     fos_fill(cv, sx, horizon + 8, sw, sy + sh - horizon - 8, FC(RAMP_GRAY, 12));
-    /* exposure simulation off: Canon brightens LiveView, whatever the exposure */
-    int expsim = fos_port_get(FS_EXPSIM);
-    if (expsim == 0) fos_blend(cv, sx, sy, sw, sh, FC(RAMP_GRAY, 255), 72);
 
-    int style = pg_get(VS_FINDER), focus = fos_port_get(FS_FOCUS), wind = fos_port_get(FS_WIND);
-    int lit = fos_port_get(FS_LEDS) ? 60 : 150, batt = fos_port_get(FS_HUD_BATT);
-    fcol white = FC(RAMP_GRAY, 250), black = FC(RAMP_GRAY, 0), led = FC(RAMP_RED, lit);
-    int vx = sx + sw / 2, vy = sy + sh / 2;         /* the view's middle */
-    switch (style)
+    float hud = knob[0].x, leds_half = knob[1].x, focus = knob[2].x;
+    int wind = fos_port_get(FS_WIND);
+    if (focus > 0.01f)
     {
-        case FOS_HUD_CLASSIC:
-            vx = sx + (sw - 20) / 2; vy = sy + (sh - 14) / 2;
-            /* meter strip and LED strip, as on the camera but small */
-            fos_fill(cv, sx + sw - 20, sy, 20, sh - 14, black);
-            fos_fill(cv, sx, sy + sh - 14, sw, 14, black);
-            for (int i = 0; i < 10; i++)
-                fos_fill(cv, sx + sw - 12, sy + 8 + i * 12, 5, 1, FC(RAMP_GRAY, 120));
-            fos_tri(cv, sx + sw - 16, sy + 8 + 5 * 12, 6, 0, FC(RAMP_RED, 150), OPAQUE);
-            fos_text(cv, &fos_font_xs, sx + 50, sy + sh - 3, "125   f4   12", led, OPAQUE, 16);
-            if (wind) fos_text(cv, &fos_font_xs, sx + 6, sy + sh - 3, "WIND", FC(RAMP_RED, 150), OPAQUE, 16);
-            if (batt) fos_rrect_line(cv, sx + sw - 16, sy + sh - 24, 10, 6, 1, 1, FC(RAMP_GRAY, 150), OPAQUE);
-            break;
-        case FOS_HUD_MINIMAL:
-            fos_fill(cv, sx + sw - 96, sy + sh - 14, 96, 14, black);
-            fos_text(cv, &fos_font_xs, sx + sw - 74, sy + sh - 3, "f4   12/36", led, OPAQUE, 16);
-            if (batt) fos_rrect_line(cv, sx + sw - 91, sy + sh - 10, 10, 6, 1, 1, FC(RAMP_GRAY, 150), OPAQUE);
-            break;
-        case FOS_HUD_RANGE:
-            vy = sy + (sh - 14) / 2 - 2;
-            for (int c = 0; c < 4; c++)
-            {
-                int x = c & 1 ? sx + sw - 20 : sx + 18, y = c & 2 ? sy + sh - 26 : sy + 12;
-                fos_fill(cv, c & 1 ? x - 14 : x, y, 15, 1, white);
-                fos_fill(cv, x, c & 2 ? y - 14 : y, 1, 15, white);
-            }
-            fos_fill(cv, sx, sy + sh - 14, sw, 14, black);
-            fos_fill(cv, sx + 84, sy + sh - 7, 60, 1, FC(RAMP_GRAY, 110));
-            fos_tri(cv, sx + 122, sy + sh - 10, 5, 1, FC(RAMP_RED, 150), OPAQUE);
-            fos_text(cv, &fos_font_xs, sx + 22, sy + sh - 3, "125  f4", led, OPAQUE, 16);
-            fos_text(cv, &fos_font_xs, sx + 164, sy + sh - 3, "12/36", led, OPAQUE, 16);
-            if (batt) fos_rrect_line(cv, sx + 5, sy + sh - 10, 10, 6, 1, 1, FC(RAMP_GRAY, 150), OPAQUE);
-            break;
-        case FOS_HUD_CLEAN:
-            fos_fill(cv, sx + sw - 52, sy + sh - 14, 52, 14, black);
-            fos_text(cv, &fos_font_xs, sx + sw - 42, sy + sh - 3, "12/36", FC(RAMP_RED, 150), OPAQUE, 16);
-            break;
+        int cx = (sx + (sw - 20) / 2) * 256, cy = (sy + (sh - 14) / 2) * 256;
+        fos_ring(cv, cx, cy, 21 * 256, 256, FC(RAMP_GRAY, 210), (int) (focus * 150));
+        fos_ring(cv, cx, cy, 9 * 256, 300, FC(RAMP_GRAY, 250), (int) (focus * 230));
+        fos_line(cv, cx - 9 * 256, cy, cx + 9 * 256, cy, 300, FC(RAMP_GRAY, 250), (int) (focus * 230));
     }
-    if (focus && (style == FOS_HUD_CLASSIC || style == FOS_HUD_MINIMAL))
+    if (hud > 0.01f)
     {
-        fos_ring(cv, vx * 256, vy * 256, 21 * 256, 256, FC(RAMP_GRAY, 210), 150);
-        fos_ring(cv, vx * 256, vy * 256, 9 * 256, 300, white, 230);
-        fos_line(cv, (vx - 9) * 256, vy * 256, (vx + 9) * 256, vy * 256, 300, white, 230);
+        int a = (int) (hud * 256);
+        /* meter strip and LED strip, as on the camera but small */
+        fos_blend(cv, sx + sw - 20, sy, 20, sh - 14, FC(RAMP_GRAY, 0), a);
+        fos_blend(cv, sx, sy + sh - 14, sw, 14, FC(RAMP_GRAY, 0), a);
+        for (int i = 0; i < 10; i++)
+            fos_fill(cv, sx + sw - 12, sy + 8 + i * 12, 5, 1, FC(RAMP_GRAY, 120 * a / 256));
+        fos_tri(cv, sx + sw - 16, sy + 8 + 5 * 12, 6, 0, FC(RAMP_RED, 150), a);
+        int lit = (int) (150 - leds_half * 100);
+        fos_text(cv, &fos_font_xs, sx + 50, sy + sh - 3, "125   f4   12", FC(RAMP_RED, lit), a, 16);
+        if (wind)
+            fos_text(cv, &fos_font_xs, sx + 6, sy + sh - 3, "WIND", FC(RAMP_RED, 150), a, 16);
     }
-    else if (focus && style == FOS_HUD_RANGE)
-        fos_rrect_line(cv, vx - 11, vy - 8, 22, 16, 1, 1, FC(RAMP_GRAY, 200), OPAQUE);
-
     /* what that means */
-    static const char *const about[] = { "An SLR's finder: scale, needle, LEDs", "A small readout in the corner",
-                                         "Bright frame lines and a needle", "The count after each shot, no more",
-                                         "Canon's own screen only" };
-    const char *l2 = expsim == 0 ? "LiveView bright, to focus by" :
-                     style == FOS_HUD_STYLES ? "" :
-                     style == FOS_HUD_CLEAN ? "Nothing over the picture" :
+    const char *l1 = !fos_port_get(FS_HUD) ? "Canon's own screen only" :
                      fos_port_get(FS_LEDS) ? "LEDs light on half-press" : "LEDs always lit";
-    fos_text_c(cv, &fos_font_sm, PV_X + PV_W / 2, sy + sh + 32, about[fos_clamp(style, 0, FOS_HUD_STYLES)], C_TEXT2, OPAQUE, 0);
+    const char *l2 = wind == 0 ? "No wind lever" : wind == 1 ? "SET winds on after each frame" : "Shutter locked until you wind";
+    fos_text_c(cv, &fos_font_sm, PV_X + PV_W / 2, sy + sh + 32, l1, C_TEXT2, OPAQUE, 0);
     fos_text_c(cv, &fos_font_sm, PV_X + PV_W / 2, sy + sh + 54, l2, C_TEXT3, OPAQUE, 0);
-    preview_caption("LIVEVIEW PREVIEW");
-}
-
-/* the print sizes, one inside the other: what the darkroom will make */
-static void preview_size()
-{
-    int cx = PV_X + PV_W / 2, sel = fos_clamp(fos_port_get(FS_SIZE), 0, FOS_SIZES - 1);
-    static const int w[FOS_SIZES] = { 60, 144, 216 };
-    int by = PV_Y + 166;
-    for (int i = FOS_SIZES - 1; i >= 0; i--)
-    {
-        int h = w[i] * 2 / 3, on = i == sel;
-        if (on) fos_rrect(cv, cx - w[i] / 2, by - h, w[i], h, 4, FC(RAMP_AMBER, 34), OPAQUE);
-        fos_rrect_line(cv, cx - w[i] / 2, by - h, w[i], h, 4, on ? 2 : 1, on ? C_ACCENT : FC(RAMP_GRAY, 70), OPAQUE);
-        fos_text(cv, &fos_font_xs, cx - w[i] / 2 + 7, by - h + 16, size_letters[i], on ? C_ACCENT : C_TEXT3, OPAQUE, 0);
-    }
-    static const char *const what[FOS_SIZES] = { "720 " T_TIMES " 480, the screen's", "A third of the sensor each way", "Half the sensor each way" };
-    static const char *const more[FOS_SIZES] = { "The quickest. No zoom.", "About 2 MP from 18. Zooms in.", "About 4.5 MP from 18. Slowest." };
-    fos_text_c(cv, &fos_font_sm, cx, by + 28, what[sel], C_TEXT2, OPAQUE, 0);
-    fos_text_c(cv, &fos_font_sm, cx, by + 50, more[sel], C_TEXT3, OPAQUE, 0);
-    preview_caption("PRINT SIZE");
-}
-
-/* a print with the date in its corner, as the data back burns it in */
-static void preview_stamp()
-{
-    int x = PV_X + 26, y = PV_Y + 24, w = PV_W - 52, h = w * 2 / 3;
-    fos_rrect(cv, x - 5, y - 5, w + 10, h + 10, 3, FC(RAMP_GRAY, 232), OPAQUE);
-    fos_vgrad(cv, x, y, w, h * 62 / 100, RAMP_BLUE, LV12(96), LV12(170));
-    fos_vgrad(cv, x, y + h * 62 / 100, w, h - h * 62 / 100, RAMP_GREEN, LV12(70), LV12(34));
-    fos_disc(cv, (x + w - 46) * 256, (y + 34) * 256, 13 * 256, FC(RAMP_GRAY, 250), OPAQUE);
-    if (fos_port_get(FS_STAMP))
-        fos_text_r(cv, &fos_font_mdb, x + w - 10, y + h - 9, "'26 11 09", FC(RAMP_ORANGE, 200), OPAQUE, 24);
-    fos_text_c(cv, &fos_font_sm, PV_X + PV_W / 2, y + h + 40, fos_port_get(FS_STAMP) ? "The day, on every print" : "No date on the prints", C_TEXT2, OPAQUE, 0);
-    preview_caption("DATE STAMP");
-}
-
-/* the two film modes: what happens at the end of a roll */
-static void preview_mode()
-{
-    int cx = PV_X + PV_W / 2, real = ui_realistic();
-    ui_icon(ICON_ROLL, cx, PV_Y + 60, C_ACCENT, OPAQUE);
-    fos_text_c(cv, &fos_font_lg, cx, PV_Y + 116, real ? "Realistic" : "Basic", C_TEXT, OPAQUE, 0);
-    fos_text_c(cv, &fos_font_sm, cx, PV_Y + 146, real ? "Rewind the roll, as on a film" : "Shoot the roll, develop it.", C_TEXT2, OPAQUE, 0);
-    fos_text_c(cv, &fos_font_sm, cx, PV_Y + 168, real ? "camera, before it is developed." : "Nothing to rewind.", C_TEXT2, OPAQUE, 0);
-    preview_caption("FILM MODE");
 }
 
 static void preview_lens()
@@ -836,7 +627,6 @@ static void preview_lens()
     else
         snprintf(b, sizeof(b), "SET ON THE RING");
     fos_text_c(cv, &fos_font_xs, cx, cy + 148, b, C_ACCENT2, OPAQUE, 32);
-    preview_caption("APERTURE");
 }
 
 /* swatches of the labels' inks and a grey wedge: compare with the boxes */
@@ -864,7 +654,6 @@ static void preview_chart()
     fos_rrect_line(cv, x0 - 1, wy - 1, ww + 2, 38, 2, 1, FC(RAMP_GRAY, 60), OPAQUE);
     fos_text(cv, &fos_font_xs, x0, wy + 54, "0", C_TEXT3, OPAQUE, 0);
     fos_text_r(cv, &fos_font_xs, x0 + ww, wy + 54, "100%", C_TEXT3, OPAQUE, 0);
-    preview_caption("TEST CHART");
 }
 
 /* the donation links as QR codes (ML/DATA/FOSQR.BIN, see tools/genqr.py),
@@ -937,18 +726,16 @@ static void preview_about()
 {
     int cx = PV_X + PV_W / 2;
     fos_text_c(cv, &fos_font_xs, cx, PV_Y + PV_H - 14, "ABOUT", C_TEXT3, OPAQUE, 48);
-    ui_aperture(cx, PV_Y + 56, 40, 1700, 5000);
-    fos_text_c(cv, &fos_font_lg, cx, PV_Y + 132, FOS_NAME, C_TEXT, OPAQUE, 64);
+    ui_aperture(cx, PV_Y + 64, 40, 1700, 5000);
+    fos_text_c(cv, &fos_font_lg, cx, PV_Y + 142, FOS_NAME, C_TEXT, OPAQUE, 64);
     char m[48];
     snprintf(m, sizeof(m), "Film OS for the %s", fos_port_model());
-    fos_text_c(cv, &fos_font_sm, cx, PV_Y + 156, m, C_TEXT2, OPAQUE, 0);
-    /* who made it, then what it stands on */
-    fos_text_c(cv, &fos_font_xs, cx, PV_Y + 186, FOS_NAME " BY HNGSERIES", C_TEXT2, OPAQUE, 24);
+    fos_text_c(cv, &fos_font_sm, cx, PV_Y + 166, m, C_TEXT2, OPAQUE, 0);
     char b[48];
     snprintf(b, sizeof(b), "VERSION %s " T_DOT " %s", fos_port_version(), __DATE__);
-    fos_text_c(cv, &fos_font_xs, cx, PV_Y + 204, b, C_TEXT3, OPAQUE, 24);
-    fos_text_c(cv, &fos_font_xs, cx, PV_Y + 222, "MAGIC LANTERN INSIDE", C_TEXT3, OPAQUE, 24);
-    fos_text_c(cv, &fos_font_xs, cx, PV_Y + 240, "BARLOW TYPEFACE " T_DOT " SIL OFL", C_TEXT3, OPAQUE, 24);
+    fos_text_c(cv, &fos_font_xs, cx, PV_Y + 196, b, C_TEXT3, OPAQUE, 24);
+    fos_text_c(cv, &fos_font_xs, cx, PV_Y + 214, "MAGIC LANTERN INSIDE", C_TEXT3, OPAQUE, 24);
+    fos_text_c(cv, &fos_font_xs, cx, PV_Y + 232, "BARLOW TYPEFACE " T_DOT " SIL OFL", C_TEXT3, OPAQUE, 24);
 }
 
 /* an on / off switch; k = 0..1 where the knob is */
@@ -1000,7 +787,7 @@ static void page_row(const struct item *it, int i, int y, int selected)
         case IT_CHOICE:
         case IT_FSTOP:
         {
-            int v = pg_get(it->setting);
+            int v = fos_port_get(it->setting);
             if (it->kind == IT_CHOICE)
                 snprintf(b, sizeof(b), "%s", it->choices[fos_clamp(v, 0, it->n - 1)]);
             else
@@ -1066,16 +853,10 @@ void page_draw()
     if (what & D_PREV)
     {
         fos_clip(cv, PV_X, PV_Y, PV_X + PV_W, PV_Y + PV_H);
-        const struct item *it = &items[page_sel];
-        int st = it->kind == IT_ACTION || it->kind == IT_PAGE || it->kind == IT_INFO ? -100 : it->setting;
-        if (page == PAGE_LENS || (it->kind == IT_PAGE && it->setting == PAGE_LENS)) preview_lens();
-        else if (page == PAGE_SCREEN || (it->kind == IT_PAGE && it->setting == PAGE_SCREEN)) preview_chart();
-        else if (st == FS_SIZE) preview_size();
-        else if (st == FS_STAMP) preview_stamp();
-        else if (st == FS_MODE) preview_mode();
-        else if (it->setting == -3 && it->kind == IT_INFO) preview_support();
-        else if (st == VS_FINDER || st == FS_EXPSIM || st == FS_LEDS || st == FS_FOCUS || st == FS_WIND || st == FS_HUD_BATT || st == FS_CANON_OFF)
-            preview_finder();
+        if (page == 0) preview_finder();
+        else if (page == 1) preview_lens();
+        else if (page == PAGE_SCREEN) preview_chart();
+        else if (items[page_sel].setting == -3 && items[page_sel].kind == IT_INFO) preview_support();
         else preview_about();
         *cv = save;
     }
@@ -1108,6 +889,7 @@ void page_draw()
 
 static struct spring dial;      /* frames shown on the counter */
 static int asking_rewind;
+static int roll_new;                    /* frames of the loaded roll not yet developed */
 static struct spring sheet;
 static int rewinding, rewind_t;
 static int rewind_then;                 /* after rewinding: 1 develop it, 0 load a new roll */
@@ -1123,9 +905,12 @@ static void roll_bake()
     ui_bg_plain();
     ui_to_bg(1);
     ui_status_bar("ROLL");
-    struct hint h1[] = { { "SET", ui_realistic() ? "Rewind roll" : "Finish roll" }, { "MENU", "Back" } };
-    struct hint h2[] = { { "SET", "Load film" }, { "MENU", "Back" } };
-    if (ui_roll.loaded) ui_hints(h1, 2); else ui_hints(h2, 2);
+    char dev_label[24];
+    snprintf(dev_label, sizeof(dev_label), "Develop new (%d)", roll_new);
+    struct hint h1[] = { { "SET", ui_realistic() ? "Rewind roll" : "Finish roll" }, { "PLAY", "Prints" }, { "MENU", "Back" } };
+    struct hint h1n[] = { { "SET", ui_realistic() ? "Rewind roll" : "Finish roll" }, { "INFO", dev_label }, { "PLAY", "Prints" }, { "MENU", "Back" } };
+    struct hint h2[] = { { "SET", "Load film" }, { "PLAY", "Prints" }, { "MENU", "Back" } };
+    if (ui_roll.loaded && roll_new) ui_hints(h1n, 4); else if (ui_roll.loaded) ui_hints(h1, 3); else ui_hints(h2, 3);
     ui_to_bg(0);
 }
 
@@ -1134,6 +919,7 @@ void roll_enter(int arg)
     fos_port_roll(&ui_roll);
     dial.x = -1.5f; dial.v = 0;     /* from "S", like a fresh counter */
     roll_sheet_drawn = 0;
+    roll_new = ui_roll.loaded ? dark_pending(ui_roll.number) : 0;
     asking_rewind = arg == 1 && ui_roll.loaded;     /* the roll has just been finished */
     sheet.x = 0; sheet.v = 0;
     rewinding = 0;
@@ -1164,10 +950,21 @@ void roll_key(int k)
             if (ui_roll.loaded) asking_rewind = 1;
             else ui_go(SCR_SHELF, 1, GO_PUSH);
             break;
-        case FK_MENU:
-            ui_go(SCR_HOME, HOME_MAIN, GO_POP);
+        case FK_INFO:                   /* develop what has been shot and not developed, the roll stays in the camera */
+            if (ui_roll.loaded && roll_new)
+            {
+                dark_queue_clear();
+                dark_queue_add_new(ui_roll.number);
+                ui_go(SCR_DEVELOP, 0, GO_FADE);
+            }
             break;
-        case FK_HOME: case FK_PLAY:
+        case FK_MENU:
+            ui_go(SCR_HOME, H_ROLL, GO_POP);
+            break;
+        case FK_PLAY:
+            ui_go(SCR_PRINTS, 0, GO_FADE);
+            break;
+        case FK_HOME:
             ui_leave();
             break;
     }

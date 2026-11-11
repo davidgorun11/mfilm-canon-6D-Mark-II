@@ -938,7 +938,7 @@ int fos_text_map(uint8_t *px, int pitch, int w, int h, const struct fos_font *f,
         if (prev) pen += kern_of(f, prev, ch) + track;
         int gx = ((pen + 8) >> 4) + g->ox, gy = y + g->oy;
         const uint8_t *p = f->bits + g->off;
-        int col = 0, row = gy < h && gy + g->h > 0 ? 0 : g->h;    /* none of it in px: skip it (the HUD draws in bands) */
+        int col = 0, row = 0;
         while (row < g->h)
         {
             int b = *p++;

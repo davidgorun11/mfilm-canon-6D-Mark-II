@@ -94,8 +94,6 @@ enum
     FK_WHEEL_L, FK_WHEEL_R,                 /* turning it */
     FK_SET, FK_MENU, FK_INFO, FK_PLAY,
     FK_HOME,                                /* what used to open the ML menu */
-    FK_DIAL_L, FK_DIAL_R,                   /* the top dial of a camera that has two: the shelves on the film shelf,
-                                               the same as turning the rear one anywhere else (#17) */
     FK_RELEASE = 0x100,                     /* or-ed in: a press above ended */
 };
 
@@ -110,29 +108,11 @@ enum
     FS_FILM, FS_EXP,
     FS_SCR_STD,         /* screen colour: 0 Canon's conversion, 1 Rec.709 */
     FS_SCR_SAT, FS_SCR_WARM, FS_SCR_BRIGHT,     /* -FOS_SCR_STEPS..FOS_SCR_STEPS */
-    FS_SCR_FLIP,        /* swivel screens: 0 as Canon's hinge says, 1 normal, 2 upside down, 3 mirrored;
-                           the port answers -1 on a camera that can't, and the item isn't shown */
-    FS_EXPSIM,          /* LiveView's exposure simulation: 1 on (the exposure the frame gets), 0 off (bright
-                           enough to focus a manual lens); -1 where Magic Lantern can't set it: not shown */
-    FS_HUD_STYLE,       /* the viewfinder: FOS_HUD_CLASSIC .. FOS_HUD_CLEAN */
-    FS_HUD_BATT,        /* the battery on the viewfinder HUD */
-    FS_SIZE,            /* the darkroom's prints: FOS_SIZE_S (the screen's 720 x 480), _M (a third of the sensor
-                           each way), _L (half of it) */
-    FS_STAMP,           /* the date in the corner of each print, as a compact camera's data back puts it */
-    FS_RECENT,          /* the films loaded last, newest in the low byte: film + 1 in each byte, 0 = none */
-    FS_FADE,            /* the short fade between screens (shelf, darkroom, prints); 0: every screen changes at once */
-    FS_CANON_OFF,       /* Canon's own LiveView graphics kept off the viewfinder (its exposure scale drew over
-                           the HUD, #67); the port answers -1 where that is always so: not shown */
+    FS_STAMP,           /* the date in the corner of each print, as a data back burns it in */
+    FS_SIZE,            /* the darkroom's prints: FOS_SIZE_S (the screen's 720 x 480), _M (the sensor 3 x 3 to a pixel), _L (2 x 2) */
     FS_COUNT
 };
 #define FOS_SCR_STEPS 6
-
-/* the viewfinder HUD's looks (FS_HUD_STYLE) */
-enum { FOS_HUD_CLASSIC,     /* an SLR's: aperture scale and needle on the right, red LEDs below */
-       FOS_HUD_MINIMAL,     /* a small readout in the corner: meter, aperture, frame */
-       FOS_HUD_RANGE,       /* a rangefinder's: bright frame lines, a needle under them */
-       FOS_HUD_CLEAN,       /* nothing, but the frame count for a moment after each shot */
-       FOS_HUD_STYLES };
 
 /* print sizes (FS_SIZE) */
 enum { FOS_SIZE_S, FOS_SIZE_M, FOS_SIZE_L, FOS_SIZES };
@@ -144,11 +124,7 @@ enum
     FA_REAPPLY,         /* film settings again (after changing WB by hand) */
     FA_CANON_MENU,      /* leave and open Canon's menu */
     FA_BUSY,            /* a = 1: long work (developing) begins, keep the camera awake; 0: done */
-    FA_DIM,             /* a = 1: the screen's backlight to its lowest while the camera works by itself; 0: back */
 };
-
-/* the films loaded last (FS_RECENT), newest first */
-#define FOS_NRECENT 4
 
 #define FOS_RECENT 5
 struct fos_roll
@@ -191,9 +167,7 @@ const char *fos_port_card();                                /* the card's root, 
 /* every entry of a directory, until fn returns 0; < 0 if it can't be read */
 int  fos_port_list(const char *dir, int (*fn)(void *ctx, const char *name, int is_dir), void *ctx);
 int  fos_port_mkdir(const char *path);                      /* 0 on success or if it exists */
-/* a file, or an empty folder (never called on one with anything in it);
- * 0 once it isn't there, removed or never there */
-int  fos_port_remove(const char *path);
+int  fos_port_remove(const char *path);                     /* a file (or an empty folder, if the camera lets it go); 0 on success */
 
 void fos_port_roll(struct fos_roll *r);
 int  fos_port_get(int setting);
@@ -204,11 +178,6 @@ int  fos_port_lens_manual();
 const char *fos_port_lens_name();
 const char *fos_port_version();
 const char *fos_port_model();               /* "Canon EOS M": the camera it runs on */
-/* the battery, 0..100, or -1 if the camera doesn't say. *exact is 1 where the
- * battery reports its charge in percent (the LP-E6 cameras: 60D, 6D, 70D, 5D
- * Mark II and III); elsewhere Canon knows three levels only, given here as
- * 100, 30 and 5, and the film OS shows the icon without a number */
-int  fos_port_battery(int *exact);
 /* photographs: palette entries 1..n become pal's colours at k/256 of
  * their brightness, FOS_FIXED_BASE.. the fixed overlay colours (fos_dev.h);
  * fos_port_palette() goes back to the film OS's own */
@@ -237,10 +206,6 @@ struct fos_hud
     int focus_screen;
     const char *film;
     int iso;                    /* the film's speed (the top plate shows it) */
-    int style;                  /* FOS_HUD_* */
-    int flash;                  /* something just happened (a frame, the aperture, the wind): the clean
-                                   viewfinder shows its count while this is set */
-    int batt, batt_exact;       /* as fos_port_battery; batt < 0: not shown */
 };
 
 struct fos_hud_palette
@@ -250,23 +215,15 @@ struct fos_hud_palette
 };
 
 void fos_hud_draw(uint8_t *vram, int pitch, const struct fos_hud *h, const struct fos_hud_palette *p);
-void fos_hud_clear(uint8_t *vram, int pitch, int style, const struct fos_hud_palette *p);
+void fos_hud_clear(uint8_t *vram, int pitch, const struct fos_hud_palette *p);
 /* the top plate: a DSLR's back screen while you shoot through the viewfinder */
 void fos_hud_plate(uint8_t *vram, int pitch, const struct fos_hud *h, const struct fos_hud_palette *p);
 void fos_hud_plate_clear(uint8_t *vram, int pitch, const struct fos_hud_palette *p);
-/* the same a band at a time, to put together off-screen: screen rows y0 .. y0 + n
- * into buf, whose first row is y0. The HUD leaves what it doesn't draw on as it
- * was; fos_hud_spans says where in row y it draws (x0, x1 pairs; returns 2 or 4) */
-void fos_hud_draw_rows(uint8_t *buf, int pitch, int y0, int n, const struct fos_hud *h, const struct fos_hud_palette *p);
-void fos_hud_plate_rows(uint8_t *buf, int pitch, int y0, int n, const struct fos_hud *h, const struct fos_hud_palette *p);
-int  fos_hud_spans(int style, int y, int x[4]);
 
 /* ---------------------------------------------------------------- the UI */
 
 void fos_ui_init();
 void fos_ui_run(int screen);
-/* the port saw something else draw on rows y0 .. y1 of the screen: they are put back at once */
-void fos_ui_overdrawn(int y0, int y1);
 
 /* canister art, fos_film.c; quality 2 = everything, 1 = no texture
  * filtering, 0 = no reflections either (the UI lowers it on a slow camera) */

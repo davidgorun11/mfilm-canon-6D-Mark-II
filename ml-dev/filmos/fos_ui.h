@@ -54,14 +54,12 @@ float clampf(float v, float lo, float hi);
 /* ---------------------------------------------------------------- navigation */
 
 enum { SCR_NONE, SCR_BOOT, SCR_SHELF, SCR_HOME, SCR_PAGE, SCR_ROLL, SCR_DARK, SCR_DEVELOP, SCR_PRINTS };
-/* how a screen change shows: PUSH (deeper) and POP (back) change at once; FADE dips
- * through black in 320 ms, where the Page fade setting is on */
 enum { GO_PUSH = 1, GO_POP = -1, GO_FADE = 0 };
 
 void ui_go(int screen, int arg, int how);
 void ui_leave();                    /* back to LiveView, shutter opening on it */
 int  ui_from();                     /* screen we came from */
-int  ui_settled();                  /* the screen gone to has been shown; no fade, shutter or iris under way */
+int  ui_settled();                  /* no screen change, shutter or iris under way */
 
 /* ---------------------------------------------------------------- widgets */
 
@@ -69,7 +67,6 @@ void ui_bg_restore(int x, int y, int w, int h);
 void ui_to_bg(int on);              /* widgets draw into ui_bg instead of the screen */
 void ui_bg_plain();                 /* the usual dark backdrop into ui_bg */
 void ui_status_bar(const char *title);
-int  ui_battery(int rx, int y);     /* the battery ending at rx; returns the width it took */
 
 struct hint { const char *key; const char *label; };
 void ui_hints(const struct hint *h, int n);
@@ -109,8 +106,6 @@ void shelf_key(int key);
 int  shelf_update(int dt);
 void shelf_draw();
 
-/* home's rows by what they are (home_enter's arg): the thing to do next, on top, then the others */
-enum { HOME_MAIN, HOME_FILM, HOME_DARK, HOME_SETTINGS };
 void home_enter(int arg);
 void home_key(int key);
 int  home_update(int dt);
@@ -136,6 +131,8 @@ void dark_draw();
 /* developing the rolls queued with dark_queue (arg unused) */
 void dark_queue_clear();
 void dark_queue_add(int roll);
+void dark_queue_add_new(int roll);  /* a roll still in the camera: only what is not developed, the newest first, no contact sheet */
+int  dark_pending(int roll);        /* how many of its frames are not developed */
 void develop_enter(int arg);
 void develop_leave();
 void develop_key(int key);

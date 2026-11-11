@@ -14,7 +14,7 @@ The camera side is free and open, for everyone.
 [![Buy the developer a coffee](https://img.shields.io/badge/Buy%20the%20developer%20a%20coffee-ffdd00?style=for-the-badge&logo=buymeacoffee&logoColor=black)](https://buy.stripe.com/7sY14p8d93QE5Ny5M58so02)
 
 [![License GPL-2.0](https://img.shields.io/badge/license-GPL--2.0-3b352f)](LICENSE)
-[![Cameras](https://img.shields.io/badge/cameras-8%20work%20%C2%B7%206%20with%20a%20problem%20%C2%B7%202%20in%20testing-3b352f)](#cameras)
+[![Cameras](https://img.shields.io/badge/cameras-9%20work%20%C2%B7%206%20with%20a%20problem%20%C2%B7%202%20in%20testing-3b352f)](#cameras)
 [![Films](https://img.shields.io/badge/films-72-3b352f)](FILMS.md)
 
 **English** · [ภาษาไทย](README.th.md) · [Films](#72-films) · [Cameras](#cameras) · [Darkrooms](#develop-on-your-computer-darkrooms) · [Take it further](PORTING.md)
@@ -214,6 +214,7 @@ still wrong. If you have one marked *needs a tester*, you can help: [TESTING.md]
 | Canon EOS 5D Mark III (firmware 1.1.3) | 1.1.3 | ⚠️ Tried, known problem | Starts and shoots; the in-camera darkroom couldn't find the RAWs ([#31](../../issues/31)): fixed in 0.1.3. From 0.2 the film OS loads as a module here too (as on the 550D and 650D): not confirmed on this camera yet, say if it starts. | `M-Film-camera-5D3.113.zip` |
 | Canon EOS 5D Mark III (firmware 1.2.3) | 1.2.3 | ⚠️ Tried, known problem | Starts and shoots; the in-camera darkroom couldn't find the RAWs ([#16](../../issues/16), [#37](../../issues/37)): fixed in 0.1.3. From 0.2 the film OS loads as a module here too (as on the 550D and 650D): not confirmed on this camera yet, say if it starts. | `M-Film-camera-5D3.123.zip` |
 | Canon EOS 6D | 1.1.6 | ✅ **Works** | Works since 0.1.2 ([#17](../../issues/17), [#22](../../issues/22)). From 0.2 the film OS loads as a module here too (as on the 550D and 650D): not confirmed on this camera yet, say if it starts. 0.2 keeps Canon's screen away for as long as a frame is being saved, and lights the readout when a dial is turned ([#17](../../issues/17), [#23](../../issues/23)): say if either still happens. | `M-Film-camera-6D.116.zip` |
+| Canon EOS 6D Mark II | 1.1.1 | ✅ **Works** | This fork only (branch 6d2), on Magic Lantern's DIGIC 7 port: the film OS as a module, built for the Cortex-A9 (fork/ml-patches/6D2.111). Tried on one camera: shoots, develops Small, Medium and Large prints. | `M-Film-camera-6D2.111.zip` |
 | Canon EOS 50D | 1.0.9 | ✅ **Works** | Works ([#43](../../issues/43)). 0.1.5 repaints the plate when Canon draws over it, but a slight flicker may remain, as on the 500D; 0.1.6 puts the plate together off-screen and puts back only what Canon drew over: reports wanted in [#64](../../issues/64). From 0.2 the film OS loads as a module here too (as on the 550D and 650D): not confirmed on this camera yet, say if it starts. | `M-Film-camera-50D.109.zip` |
 | Canon EOS 60D | 1.1.1 | ✅ **Works** | Works since 0.1.3 ([#25](../../issues/25)). 0.1.5: Screen orientation for a broken hinge switch ([#49](../../issues/49)). From 0.2 the film OS loads as a module here too (as on the 550D and 650D): not confirmed on this camera yet, say if it starts. | `M-Film-camera-60D.111.zip` |
 | Canon EOS 70D | 1.1.2 | ⚠️ Tried, known problem | 0.1.5 works on a tester's 70D, with the film OS as a module ([#40](../../issues/40)); on another, Magic Lantern installs but the camera then starts Canon's own firmware ([#58](../../issues/58)): more reports wanted. | `M-Film-camera-70D.112.zip` |
@@ -226,7 +227,7 @@ still wrong. If you have one marked *needs a tester*, you can help: [TESTING.md]
 | Canon EOS 1100D / Rebel T3 / Kiss X50 | 1.0.5 | 🧪 Builds, needs a tester | The film OS as a module fits its boot memory (493,056 of 524,032 bytes). Needs a first tester. | `M-Film-camera-1100D.105.zip` |
 | Canon EOS 1300D / Rebel T6 / Kiss X80 | 1.1.0 | 🧪 Builds, needs a tester | New in 0.2.1, on Magic Lantern's own 1300D port, which is new and experimental. Installed with mlinstall over USB, not a firmware update ([TESTING.md](TESTING.md#canon-eos-1300d)). Loading a roll doesn't set ISO, white balance or picture style here: Magic Lantern can't change Canon's settings on the 1300D yet, so the look comes when the roll is developed. Canon's firmware 1.1.0 comes in two kinds: if the camera hangs at power on, take the battery out and put the old card back. Needs a first tester. | `M-Film-camera-1300D.110.zip` |
 
-**Not yet:** 5D Mark IV, 5DS R, 6D Mark II, 7D Mark II, 77D, 80D, 200D, 750D, 850D, M50, R, R5, R6, RP, SX70 HS, SX740 HS (Magic Lantern itself is still experimental on these) · 7D (Magic Lantern's current source doesn't build it).
+**Not yet:** 5D Mark IV, 5DS R, 7D Mark II, 77D, 80D, 200D, 750D, 850D, M50, R, R5, R6, RP, SX70 HS, SX740 HS (Magic Lantern itself is still experimental on these) · 7D (Magic Lantern's current source doesn't build it).
 <!-- cameras:end -->
 
 ✅ tried on the camera and works · ⚠️ tried, with a problem · 🧪 builds; waiting for someone to try it. From 0.2 the film OS is a module on every camera ([why](ml-dev/MEMORY.md)): one zip a camera. The card files are in each

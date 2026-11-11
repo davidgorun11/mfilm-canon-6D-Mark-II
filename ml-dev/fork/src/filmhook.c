@@ -1,12 +1,9 @@
-/* The film OS as a module (build_fork.sh --module): all that stays in
- * autoexec.bin. The film OS itself (filmroll.c, fos_*.c) is ML/modules/filmos.mo,
- * loaded after boot into Canon's memory, so it doesn't count against what the
- * camera can spare at power on (MEMORY.md).
+/* The film OS as a module (ML/modules/filmos.mo, built in modules/filmos): all that stays in
+ * autoexec.bin. Taken from M-Film 0.2 (fork/src/filmhook.c) for the 6D Mark II.
  *
- * These are the three calls ML's core makes into the film OS. Each goes to
- * the module once it is loaded; without it (missing, failed to load, or ML
- * skipped loading modules after a crash) they answer as if there were no
- * film OS, so the camera still has Magic Lantern's own menu. */
+ * The three calls ML's core makes into the film OS. Each goes to the module once it is loaded;
+ * without it (missing, failed to load, or ML skipped loading modules after a crash) they answer as
+ * if there were no film OS, so the camera still has Magic Lantern's own menu. */
 
 #include <dryos.h>
 #include <module.h>
@@ -15,7 +12,7 @@
 #include <tasks.h>
 #include "filmroll.h"
 
-/* defined in the module (filmroll.c); 0 until it is loaded */
+/* defined in the module (filmroll.c); ret_0 until it is loaded */
 static int (*filmos_key_used)(struct event *event) = MODULE_FUNCTION(filmos_key_used);
 static int (*filmos_menu_open)(void)               = MODULE_FUNCTION(filmos_menu_open);
 static int (*filmos_overlays)(void)                = MODULE_FUNCTION(filmos_overlays);
@@ -35,14 +32,8 @@ int filmroll_overlays_active()
     return filmos_overlays();
 }
 
-/* Without the module the camera would just show Magic Lantern's own menu,
- * and nothing says why (#46). Once ML has had time to load its modules, say
- * so on the screen, and in ML/FILMROLL.LOG. ML's module task (module.c):
- * with "Disable all modules" on, it only lists the modules; after a power
- * off that wasn't clean (LOADING.LCK left on the card) it skips them, and
- * the list stays empty; otherwise it writes LOADING.LCK, which stays until
- * a clean shutdown, and loads them. So the lock file can't tell these apart,
- * the list can. ML's notify box holds 99 characters. */
+/* Without the module the camera just shows Magic Lantern's own menu, and nothing would say why: once
+ * ML has had time to load its modules, say so on the screen and in ML/FILMROLL.LOG. */
 extern int module_autoload_disabled;    /* module.c */
 
 static void filmhook_note(const char *why)
@@ -67,7 +58,7 @@ static void filmhook_task()
     if (module_autoload_disabled)
         filmhook_note("'Disable all modules' is on: MENU > Debug > Modules debug.");
     else if (FIO_GetFileSize(MODULE_PATH "FILMOS.MO", &size) != 0)
-        filmhook_note("ML/modules/filmos.mo isn't on the card. Copy the zip again.");
+        filmhook_note("ML/modules/filmos.mo isn't on the card.");
     else if (module_get_number("filmos") < 0)
         filmhook_note("ML skipped its modules (battery pulled?). Switch off, then on.");
     else
@@ -75,4 +66,3 @@ static void filmhook_task()
 }
 
 TASK_CREATE("filmhook_task", filmhook_task, 0, 0x1f, 0x1000);
-

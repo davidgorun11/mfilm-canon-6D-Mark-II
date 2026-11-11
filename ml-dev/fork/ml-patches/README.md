@@ -22,3 +22,4 @@ ml-patches/<platform>/no-modules  Magic Lantern modules that must not be in this
 |---|---|---|
 | 1300D.110 | `0001-1300D-initial-support.patch` | Magic Lantern's port (142472e, 2026-10-04), which came after the base |
 | 1300D.110 | `no-modules` | Magic Lantern has reports of `mlv_lite` damaging 1300Ds (magiclantern_simplified PR #199) |
+| 6D2.111 | `0001-6D2-film-mode.patch`, `module.mk` | this fork's 6D Mark II port (DIGIC 7): see `6D2.111/README.md` |

@@ -1,0 +1,589 @@
+diff --git a/modules/Makefile b/modules/Makefile
+index ed474645d..eba21df46 100644
+--- a/modules/Makefile
++++ b/modules/Makefile
+@@ -31,6 +31,7 @@ CFLAGS += -march=$(MODULE_ARCH)
+ 
+ # List of modules that are built by default, including
+ # when building a zip for a cam.
++# lua dropped by film-mode fork (newlib header clash with gcc 14)
+ ML_MODULES = \
+     raw_video/mlv_lite \
+     raw_video/mlv_play \
+@@ -46,7 +47,6 @@ ML_MODULES = \
+     arkanoid \
+     deflick \
+     img_name \
+-    lua \
+     bench \
+     selftest \
+     adv_int \
+diff --git a/platform/6D2.111/Makefile b/platform/6D2.111/Makefile
+index dc7361d39..64e59ab3b 100644
+--- a/platform/6D2.111/Makefile
++++ b/platform/6D2.111/Makefile
+@@ -21,6 +21,13 @@ CFLAGS_PLATFORM += -mthumb -mlong-calls
+ 
+ ML_BOOT_OBJ = boot-d678.o
+ ML_SRC_EXTRA_OBJS += $(BUILD_DIR)/function_overrides.o
++# the film OS is ML/modules/filmos.mo (modules/filmos): autoexec.bin keeps its three hooks
++ML_SRC_EXTRA_OBJS += $(BUILD_DIR)/filmhook.o
+ 
+ include ../Makefile
+ .DEFAULT_GOAL := $(BUILD_DIR)/cam_complete
++
++# kept in autoexec.bin for the film OS module (only it calls these; --gc-sections would drop them)
++LFLAGS += -u get_us_clock -u display_on -u FIO_GetFileSize_direct -u __powisf2 -u beep_times -u bmp_rgb_lut -u cosf -u display_is_on -u exp2f \
++          -u get_dcim_dir_suffix -u lens_set_kelvin -u lens_set_rawiso -u lens_set_wbs_ba -u lens_set_wbs_gm \
++          -u ml_blank_osd -u picstyle_slot -u sinf -u strcat
+diff --git a/platform/6D2.111/features.h b/platform/6D2.111/features.h
+index 8ea498ec5..9e9f10ee8 100644
+--- a/platform/6D2.111/features.h
++++ b/platform/6D2.111/features.h
+@@ -23,3 +23,6 @@
+ 
+ #undef CONFIG_ADDITIONAL_VERSION
+ #undef CONFIG_AUTOBACKUP_ROM
++
++/* film camera mode (src/filmroll.c) */
++#define FEATURE_FILMROLL
+diff --git a/platform/6D2.111/internals.h b/platform/6D2.111/internals.h
+index 3d0cbbfb6..b1dc044dc 100644
+--- a/platform/6D2.111/internals.h
++++ b/platform/6D2.111/internals.h
+@@ -5,6 +5,9 @@
+ /** This camera has a DIGIC VII chip */
+ #define CONFIG_DIGIC_VII
+ 
++/* M-Film: without this ML never learns that LiveView is on (the PROP_LV_ACTION handler is not compiled) */
++#define CONFIG_LIVEVIEW
++
+ // has inter-core RPC (so far this has always been dependent on SGI, 0xc)
+ #define CONFIG_RPC
+ 
+diff --git a/platform/6D2.111/property_whitelist.h b/platform/6D2.111/property_whitelist.h
+index 3b2e167f1..c94fe1659 100644
+--- a/platform/6D2.111/property_whitelist.h
++++ b/platform/6D2.111/property_whitelist.h
+@@ -37,7 +37,21 @@ const uint32_t prop_write_allow[] =
+     PROP_ICU_AUTO_POWEROFF, // used in multiple places, incl. installer / uninstaller
+     PROP_BUTTON_ASSIGNMENT,
+     PROP_REMOTE_SW1,
+-    PROP_REMOTE_SW2
++    PROP_REMOTE_SW2,
++    // M-Film: the film's look in LiveView (picture style, white balance); plain enum / Kelvin values
++    PROP_PICTURE_STYLE,
++    PROP_WB_MODE_LV,
++    PROP_WB_KELVIN_LV,
++    PROP_WB_MODE_PH,
++    PROP_WB_KELVIN_PH,
++    PROP_ISO,               // M-Film: the film's speed
++    PROP_WBS_GM,            // M-Film: white balance shift, green/magenta and amber/blue (-9..9)
++    PROP_WBS_BA,
++    // M-Film: contrast / sharpness / saturation / tone of the three picture styles its films use.
++    // The settings are 0x20 bytes here (ML's struct is 0x18): write them from what the camera sent.
++    PROP_PICSTYLE_SETTINGS_STANDARD,
++    PROP_PICSTYLE_SETTINGS_LANDSCAPE,
++    PROP_PICSTYLE_SETTINGS_MONOCHROME
+ };
+ 
+ // anything not listed above will allow reads but not writes
+diff --git a/platform/Makefile b/platform/Makefile
+index b1f3d9ff1..3000afd5f 100644
+--- a/platform/Makefile
++++ b/platform/Makefile
+@@ -494,7 +494,7 @@ $(DIET_OBJS): $(DIETLIBC_A) | $(BUILD_DIR)
+ 
+ $(BUILD_DIR)/dietlibc.a: $(DIET_OBJS) | $(BUILD_DIR)
+ 	$(AR) cr $@ $^
+-CFLAGS += $(CFLAGS_PLATFORM)
++CFLAGS += $(CFLAGS_PLATFORM) -ffunction-sections -fdata-sections
+ 
+ # Now a list of files we get from newlib.  Apparently the
+ # dietlibc memcpy/memset caused hangs.  And newlib is faster.
+@@ -632,7 +632,7 @@ $(BUILD_DIR)/magiclantern.lds: $(SRC_DIR)/magiclantern.lds.S | $(BUILD_DIR)
+ 	$(MV) $(BUILD_DIR)/magiclantern.lds.tmp $@
+ 
+ $(BUILD_DIR)/magiclantern: $(ML_LD_SCRIPT) $(ML_ENTRY_OBJ) $(ML_OBJS) $(ML_LIBC) | $(BUILD_DIR)
+-	$(LD) -o $@ -N $(LFLAGS) -T $^ -Map=$(BUILD_DIR)/location.map
++	$(LD) -o $@ -N $(LFLAGS) --gc-sections -T $^ -Map=$(BUILD_DIR)/location.map
+ 
+ $(BUILD_DIR)/magiclantern.bin: $(BUILD_DIR)/magiclantern | $(BUILD_DIR)
+ 	$(OBJCOPY) -O binary $< $@
+diff --git a/src/bmp.c b/src/bmp.c
+index de9222e70..b4fcd9c7c 100755
+--- a/src/bmp.c
++++ b/src/bmp.c
+@@ -110,10 +110,21 @@ void bmp_draw_to_idle(int value) { bmp_idle_flag = value; }
+ struct MARV *rgb_vram_info = NULL;
+ static uint8_t *bmp_vram_indexed = NULL;
+ // SJE what is an appropriate priority for this task?
++#ifdef CONFIG_6D2
++/* M-Film: above the film OS (0x1a), or its drawing starves the refresh and the screen tears in strips */
++TASK_CREATE( "redraw_task", refresh_yuv_from_rgb_task, 0, 0x19, 0x1000 );
++#else
+ TASK_CREATE( "redraw_task", refresh_yuv_from_rgb_task, 0, 0x1e, 0x1000 );
+ #endif
++#endif
+ // SJE should this global live in bmp.c?
+ uint32_t ml_refresh_display_needed = 0;
++#ifdef FEATURE_VRAM_RGBA
++uint32_t ml_refresh_count = 0, ml_refresh_ms = 0;
++static uint32_t *ml_rgb_other = NULL;   /* M-Film: the OSD layer buffer Canon showed before the current one */
++volatile uint32_t ml_refresh_busy = 0;   /* M-Film: the OSD refresh is reading the indexed buffer */
++uint32_t ml_refresh_full = 0, ml_ximr_ms = 0;   /* M-Film: force a whole-frame refresh; time spent in XimrExe */   /* M-Film: how often and how long the OSD refresh runs */
++#endif
+ 
+ /** Returns a pointer to currently selected BMP vram (real or mirror) */
+ uint8_t * bmp_vram(void)
+@@ -191,8 +202,11 @@ void bmp_idle_copy(int direction, int fullsize)
+ // but this struct is not yet determined for 200D
+ extern int XimrExe(void *);
+ extern struct semaphore *winsys_sem;
++static uint32_t indexed2rgbLUT[RGB_LUT_SIZE];   /* defined below */
++
+ void refresh_yuv_from_rgb(void)
+ {
++    uint32_t refresh_t0 = get_ms_clock();
+     // get our indexed buffer, convert into our real rgb buffer
+     uint8_t *b = bmp_vram_indexed;
+     uint32_t *rgb_data = NULL;
+@@ -239,6 +253,41 @@ void refresh_yuv_from_rgb(void)
+             }
+             rgb_row = rgb_row + BMP_LAYER_WIDTH;
+         }
++#elif defined(CONFIG_6D2)
++        // M-Film: only the 720x480 the LCD shows, LUT read inline (the table is 256 entries,
++        // so any index is in range), and only the rows that changed since the last refresh:
++        // writing the RGBA layer is the slow part (30 ms for the whole frame). Everything is
++        // redone when the palette changed (ml_refresh_full), when Canon swaps the layer, and
++        // once a second in case Canon cleared it under us. Same "skip transparent" rule as below.
++        {
++            static uint32_t row_hash[480];
++            static uint32_t *last_rgb = NULL;
++            static uint32_t last_full_ms = 0;
++            uint32_t now = get_ms_clock();
++            int full = ml_refresh_full || rgb_data != last_rgb || now - last_full_ms > 1000;
++            if (full) last_full_ms = now;
++            ml_refresh_full = 0;
++            if (rgb_data != last_rgb && last_rgb) ml_rgb_other = last_rgb;      /* Canon swapped its layer: remember the one it left */
++            last_rgb = rgb_data;
++            const uint32_t *lut = indexed2rgbLUT;
++            for (int y = 0; y < 480; y++)
++            {
++                const uint8_t *src = b + BMP_HDMI_OFFSET + y * BMPPITCH;
++                const uint32_t *w = (const uint32_t *) src;     /* 28920 + y*960 is word aligned */
++                uint32_t h = 2166136261u;
++                for (int i = 0; i < 180; i++)
++                    h = (h ^ w[i]) * 16777619u;
++                if (!full && h == row_hash[y])
++                    continue;
++                row_hash[y] = h;
++                uint32_t *dst = rgb_data + BMP_HDMI_OFFSET + y * BMPPITCH;
++                for (int x = 0; x < 720; x++)
++                {
++                    uint32_t rgb = lut[src[x]];
++                    if (rgb) dst[x] = rgb;
++                }
++            }
++        }
+ #else
+         //SJE FIXME benchmark this loop, it probably wants optimising
+         for (size_t n = 0; n < BMP_VRAM_SIZE; n++)
+@@ -259,6 +308,7 @@ void refresh_yuv_from_rgb(void)
+ #endif
+ 
+     // trigger Ximr to render to OSD from RGB buffer
++    uint32_t ximr_t0 = get_ms_clock();
+ #ifdef CONFIG_DIGIC_VI
+     XimrExe((void *)XIMR_CONTEXT);
+ #else
+@@ -266,7 +316,12 @@ void refresh_yuv_from_rgb(void)
+     XimrExe((void *)XIMR_CONTEXT);
+     give_semaphore(winsys_sem);
+ #endif
++    ml_ximr_ms += get_ms_clock() - ximr_t0;
++#ifndef CONFIG_6D2
+     ml_refresh_display_needed = 0;
++#endif
++    ml_refresh_count++;
++    ml_refresh_ms += get_ms_clock() - refresh_t0;
+ }
+ 
+ #if defined(CONFIG_INSTALLER)
+@@ -275,6 +330,26 @@ void refresh_yuv_from_rgb(void)
+ int ml_shutdown_requested = 0;
+ #endif
+ 
++#ifdef CONFIG_6D2
++/* The refresh above never writes transparent pixels (it leaves a clear screen to Canon), so whatever the
++ * film OS last drew stays in the OSD layer. At power off Canon's sensor-cleaning screen then appears over
++ * it: the film OS blanks its 720x480 here, writing real transparent pixels, once the refresh is done. */
++void ml_blank_osd(void)
++{
++    if (rgb_vram_info == NULL) return;
++    uint32_t *rgb_data = (uint32_t *) rgb_vram_info->bitmap_data;
++    for (int y = 0; y < 480; y++)
++        memset(rgb_data + BMP_HDMI_OFFSET + y * BMPPITCH, 0, 720 * sizeof(uint32_t));
++    /* and the layer Canon swapped away from, if it did: what we drew there comes back with the next swap */
++    if (ml_rgb_other && ml_rgb_other != rgb_data)
++        for (int y = 0; y < 480; y++)
++            memset(ml_rgb_other + BMP_HDMI_OFFSET + y * BMPPITCH, 0, 720 * sizeof(uint32_t));
++    take_semaphore(winsys_sem, 0);
++    XimrExe((void *) XIMR_CONTEXT);
++    give_semaphore(winsys_sem);
++}
++#endif
++
+ void refresh_yuv_from_rgb_task(void *unused)
+ {
+     #ifdef CONFIG_COMPOSITOR_DEDICATED_LAYER
+@@ -287,9 +362,21 @@ void refresh_yuv_from_rgb_task(void *unused)
+     {
+         if (ml_refresh_display_needed && !ml_shutdown_requested && DISPLAY_IS_ON)
+         {
++#ifdef CONFIG_6D2
++            /* cleared before, not after: a frame drawn during the refresh asks for the next one */
++            ml_refresh_display_needed = 0;
++            ml_refresh_busy = 1;
+             refresh_yuv_from_rgb();
++            ml_refresh_busy = 0;
++#else
++            refresh_yuv_from_rgb();
++#endif
+         }
++#ifdef CONFIG_6D2
++        msleep(5);  // M-Film: the film OS animates, 50 ms (20 fps) is too slow for it
++#else
+         msleep(50); // max 20 fps refresh
++#endif
+     }
+ }
+ 
+@@ -340,8 +427,16 @@ static uint32_t indexed2uyvyLUT[COLOR_ORANGE + 1] = {
+ #endif
+ 
+ 
++uint32_t *bmp_rgb_lut(void)
++{
++    return indexed2rgbLUT;
++}
++
+ uint32_t indexed2rgb(uint8_t color)
+ {
++#if RGB_LUT_SIZE > 255
++    return indexed2rgbLUT[color];   /* M-Film's 256 entries: every index is in the table */
++#else
+     if (color < RGB_LUT_SIZE)
+     {
+         return indexed2rgbLUT[color];
+@@ -351,6 +446,7 @@ uint32_t indexed2rgb(uint8_t color)
+         // return gray so it's probably visible
+         return indexed2rgbLUT[4];
+     }
++#endif
+ }
+ 
+ #endif
+diff --git a/src/bmp.h b/src/bmp.h
+index 0a79cda28..09fd49e2b 100755
+--- a/src/bmp.h
++++ b/src/bmp.h
+@@ -36,6 +36,12 @@
+ extern int bmp_enabled;
+ 
+ extern uint32_t ml_refresh_display_needed;
++#ifdef FEATURE_VRAM_RGBA
++uint32_t *bmp_rgb_lut(void);
++extern volatile uint32_t ml_refresh_busy;
++void ml_blank_osd(void);                    /* M-Film: write transparent pixels over the 720x480 the film OS drew in */
++extern uint32_t ml_refresh_count, ml_refresh_ms, ml_refresh_full, ml_ximr_ms;   /* M-Film: the index -> ARGB table, to load its own colours */
++#endif
+ 
+ /** Returns a pointer to the real BMP vram (or to idle BMP vram) */
+ uint8_t * bmp_vram(void);
+@@ -78,7 +84,7 @@ void refresh_yuv_from_rgb(void);
+ void refresh_yuv_from_rgb_task(void *);
+ uint32_t indexed2rgb(uint8_t color);
+ 
+-#define RGB_LUT_SIZE 80
++#define RGB_LUT_SIZE 256   /* M-Film: its film OS uses indices up to 254 */
+ inline uint8_t *bmp_vram_raw() {
+     struct MARV *marv = rgb_vram_info;
+     return marv ? marv->bitmap_data : NULL;
+diff --git a/src/boot-d45-am.c b/src/boot-d45-am.c
+index 2201e76c7..01865665a 100755
+--- a/src/boot-d45-am.c
++++ b/src/boot-d45-am.c
+@@ -124,7 +124,11 @@ init_task_func init_task_patched(void)
+         while(1);                                       /* refuse to boot */
+     }
+ 
+-    #if defined(CONFIG_6D) || defined(CONFIG_100D) || defined(CONFIG_70D)
++    #if defined(CONFIG_6D)
++    /* film-mode fork: R0 0x44C000 -> 0x520000 => reserve 848K for ML (MOV R0, #0x520000) */
++    addr_AllocMem_end[1] = 0xE3A00852;
++    ml_reserved_mem = 0x520000 - RESTARTSTART;
++    #elif defined(CONFIG_100D) || defined(CONFIG_70D)
+     /* R0: 0x44C000 (start address, easier to patch, change to 0x4E0000 => reserve 592K for ML) */
+     /* R1: 0xD3C000 [6D, 70D] / 0xC3C000 [100D] (end address, unchanged) */
+     addr_AllocMem_end[1] = MOV_R0_0x4E0000_INSTR;
+diff --git a/src/console.c b/src/console.c
+index 6b1f5e479..cf2149e95 100644
+--- a/src/console.c
++++ b/src/console.c
+@@ -34,6 +34,9 @@ int console_visible = 0;
+ 
+ void console_show()
+ {
++#ifdef CONFIG_6D2
++    return;   /* M-Film: no console box over the film OS; ML's menu that toggled it is replaced */
++#endif
+     console_visible = 1;
+     redraw();
+ }
+diff --git a/src/gui-common.c b/src/gui-common.c
+index 992e8f692..13f631291 100644
+--- a/src/gui-common.c
++++ b/src/gui-common.c
+@@ -8,6 +8,7 @@
+ #include <boot-hack.h>
+ #include <fps.h>
+ #include <zebra.h>
++#include <filmroll.h>
+ #include <lens.h>
+ #include <config.h>
+ #include <lvinfo.h>
+@@ -505,6 +506,9 @@ int handle_common_events_by_feature(struct event * event)
+     if (handle_zoom_overlay(event) == 0) return 0;
+     #endif
+ 
++#ifdef FEATURE_FILMROLL
++    if (handle_filmroll_keys(event) == 0) return 0;
++#endif
+     if (handle_module_keys(event) == 0) return 0;
+     if (handle_flexinfo_keys(event) == 0) return 0;
+ 
+diff --git a/src/magiclantern.lds.S b/src/magiclantern.lds.S
+index edc9aea9b..24dcf62ac 100644
+--- a/src/magiclantern.lds.S
++++ b/src/magiclantern.lds.S
+@@ -36,7 +36,8 @@ SECTIONS
+ #endif
+     .text : {
+         _text_start = .;
+-        *(.text)
++        KEEP(*entry.o(.text))
++        *(.text .text.*)
+         _text_end = .;
+ 
+ #if defined(POSITION_INDEPENDENT)
+@@ -48,7 +49,7 @@ SECTIONS
+ 
+         . = ALIGN(64);
+         _rodata_start = .;
+-        *(.rodata)
++        *(.rodata .rodata.*)
+         _rodata_end = .;
+     }
+ 
+@@ -59,54 +60,54 @@ SECTIONS
+         // TASK_OVERRIDE() places things here
+         . = ALIGN(8);
+         _task_overrides_start = .;
+-        *(.task_overrides);
++        KEEP(*(.task_overrides));
+         _task_overrides_end = .;
+ 
+         /* List of magiclantern user tasks to be started  */
+         // TASK_CREATE() places things here
+         . = ALIGN(8);
+         _tasks_start = .;
+-        *(.tasks)
++        KEEP(*(.tasks))
+         _tasks_end = .;
+ 
+         /* List of magiclantern init funcs to be called  */
+         // INIT_FUNC() places things here
+         . = ALIGN(8);
+         _init_funcs_start = .;
+-        *(.init_funcs)
++        KEEP(*(.init_funcs))
+         _init_funcs_end = .;
+ 
+         /* List of PTP handlers to be installed */
+         // REGISTER_PTP_HANDLER() places things here
+         . = ALIGN(8);
+         _ptp_handlers_start = .;
+-        *(.ptp_handlers)
++        KEEP(*(.ptp_handlers))
+         _ptp_handlers_end = .;
+ 
+         /* Configuration parameters to be assigned */
+         // CONFIG_INT(), CONFIG_INT_EX(), CONFIG_ARRAY_ELEMENT()
+         . = ALIGN(8);
+         _config_vars_start = .;
+-        *(.config_vars)
++        KEEP(*(.config_vars))
+         _config_vars_end = .;
+ 
+         /* Property handlers */
+         // REGISTER_PROP_HANDLER() places things here
+         . = ALIGN(8);
+         _prop_handlers_start = .;
+-        *(.prop_handlers)
++        KEEP(*(.prop_handlers))
+         _prop_handlers_end = .;
+ 
+         /* Module symbols that may be called from core code */
+         // MODULE_FUNCTION() places things here
+         . = ALIGN(8);
+         _module_symbols_start = .;
+-        *(.module_symbols)
++        KEEP(*(.module_symbols))
+         _module_symbols_end = .;
+ 
+         /* Read/write data */
+         . = ALIGN(64);
+-        *(.data)
++        *(.data .data.*)
+     }
+ 
+     _data.end = .;
+@@ -118,7 +119,7 @@ SECTIONS
+     /* BSS segment to be zeroed */
+     . = ALIGN(64);
+     _bss_start = .;
+-    .bss : { *(.bss) }
++    .bss : { *(.bss .bss.*) }
+     . = ALIGN(64);
+     _bss_end = .;
+ 
+diff --git a/src/menu.c b/src/menu.c
+index a83f43e1b..de73def00 100755
+--- a/src/menu.c
++++ b/src/menu.c
+@@ -39,6 +39,7 @@
+ #include "debug.h"
+ #include "lvinfo.h"
+ #include "powersave.h"
++#include "filmroll.h"
+ 
+ #define CONFIG_MENU_ICONS
+ //~ #define CONFIG_MENU_DIM_HACKS
+@@ -5648,6 +5649,10 @@ static void close_canon_menu()
+ 
+ static void menu_open() 
+ { 
++#ifdef FEATURE_FILMROLL
++    if (filmroll_menu_requested())      /* 0: the film OS module isn't loaded, ML's menu opens */
++        return;
++#endif
+     if (menu_shown)
+         return;
+ 
+diff --git a/src/picstyle.c b/src/picstyle.c
+index 4cd46ae8f..7e10e2570 100644
+--- a/src/picstyle.c
++++ b/src/picstyle.c
+@@ -51,45 +51,65 @@ PROP_HANDLER(PROP_PICTURE_STYLE)
+ }
+ 
+ struct prop_picstyle_settings picstyle_settings[NUM_PICSTYLES + 1];
++#ifdef CONFIG_6D2
++/* M-Film: the settings as the camera sends them (0x20 bytes here, ML's struct is 0x18), for the styles its
++ * films use: slot 0 standard (index 2), 1 landscape (4), 2 monochrome (7) */
++uint32_t picstyle_raw[3][8];
++uint32_t picstyle_raw_len[3];
++int picstyle_slot(int index) { return index == 2 ? 0 : index == 4 ? 1 : index == 7 ? 2 : -1; }
++#define PS_RAW(n) do { int s_ = picstyle_slot(n); if (s_ >= 0) { picstyle_raw_len[s_] = len; memcpy(picstyle_raw[s_], buf, len > 32 ? 32 : len); } } while (0)
++#else
++#define PS_RAW(n) do {} while (0)
++#endif
+ 
+ // prop_register_slave is much more difficult to use than copy/paste...
+ 
+ PROP_HANDLER( PROP_PICSTYLE_SETTINGS_AUTO ) {
+     memcpy(&picstyle_settings[1], buf, sizeof(*picstyle_settings));
++    PS_RAW(1);
+ }
+ 
+ PROP_HANDLER( PROP_PICSTYLE_SETTINGS_STANDARD ) {
+     memcpy(&picstyle_settings[2], buf, sizeof(*picstyle_settings));
++    PS_RAW(2);
+ }
+ 
+ PROP_HANDLER( PROP_PICSTYLE_SETTINGS_PORTRAIT ) {
+     memcpy(&picstyle_settings[3], buf, sizeof(*picstyle_settings));
++    PS_RAW(3);
+ }
+ 
+ PROP_HANDLER( PROP_PICSTYLE_SETTINGS_LANDSCAPE ) {
+     memcpy(&picstyle_settings[4], buf, sizeof(*picstyle_settings));
++    PS_RAW(4);
+ }
+ 
+ PROP_HANDLER( PROP_PICSTYLE_SETTINGS_NEUTRAL ) {
+     memcpy(&picstyle_settings[5], buf, sizeof(*picstyle_settings));
++    PS_RAW(5);
+ }
+ 
+ PROP_HANDLER( PROP_PICSTYLE_SETTINGS_FAITHFUL ) {
+     memcpy(&picstyle_settings[6], buf, sizeof(*picstyle_settings));
++    PS_RAW(6);
+ }
+ 
+ PROP_HANDLER( PROP_PICSTYLE_SETTINGS_MONOCHROME ) {
+     memcpy(&picstyle_settings[7], buf, sizeof(*picstyle_settings));
++    PS_RAW(7);
+ }
+ 
+ PROP_HANDLER( PROP_PICSTYLE_SETTINGS_USERDEF1 ) {
+     memcpy(&picstyle_settings[8], buf, sizeof(*picstyle_settings));
++    PS_RAW(8);
+ }
+ 
+ PROP_HANDLER( PROP_PICSTYLE_SETTINGS_USERDEF2 ) {
+     memcpy(&picstyle_settings[9], buf, sizeof(*picstyle_settings));
++    PS_RAW(9);
+ }
+ 
+ PROP_HANDLER( PROP_PICSTYLE_SETTINGS_USERDEF3 ) {
+     memcpy(&picstyle_settings[10], buf, sizeof(*picstyle_settings));
++    PS_RAW(10);
+ }
+diff --git a/src/tskmon.c b/src/tskmon.c
+index 594de5f1b..5d32997f4 100644
+--- a/src/tskmon.c
++++ b/src/tskmon.c
+@@ -198,6 +198,8 @@ static void tskmon_stack_checker(struct task *next_task)
+             return; // RTCMgr uses 796 of 1024, 228 free
+         if (streq(task_name, "idle") && free > 64)
+             return; // in Play mode, uses 128 of 256, 128 free
++        if (streq(task_name, "EFLensComTask") && free > 128)
++            return; // lens comm uses 776 of 1024, 248 free
+         #endif
+ 
+         bmp_printf(FONT(FONT_MED, free < 128 ? COLOR_RED : COLOR_WHITE, COLOR_BLACK), 0, 0, 
+diff --git a/src/zebra.c b/src/zebra.c
+index ee713a6ca..9b74b2e6e 100644
+--- a/src/zebra.c
++++ b/src/zebra.c
+@@ -23,6 +23,7 @@
+  */
+ 
+ #include "zebra.h"
++#include "filmroll.h"
+ #include "vectorscope.h"
+ #include "electronic_level.h"
+ #include "dryos.h"
+@@ -408,6 +409,9 @@ extern int idle_globaldraw_disable;
+ 
+ int get_global_draw() // menu setting, or off if 
+ {
++#ifdef FEATURE_FILMROLL
++    if (filmroll_overlays_active()) return 0;
++#endif
+ #ifdef FEATURE_GLOBAL_DRAW
+     
+     #ifdef LV_OVERLAYS_MODE

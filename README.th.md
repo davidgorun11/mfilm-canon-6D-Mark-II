@@ -14,7 +14,7 @@
 [![เลี้ยงกาแฟผู้พัฒนา](https://img.shields.io/badge/%E0%B9%80%E0%B8%A5%E0%B8%B5%E0%B9%89%E0%B8%A2%E0%B8%87%E0%B8%81%E0%B8%B2%E0%B9%81%E0%B8%9F%E0%B8%9C%E0%B8%B9%E0%B9%89%E0%B8%9E%E0%B8%B1%E0%B8%92%E0%B8%99%E0%B8%B2-ffdd00?style=for-the-badge&logo=buymeacoffee&logoColor=black)](https://buy.stripe.com/7sY14p8d93QE5Ny5M58so02)
 
 [![License GPL-2.0](https://img.shields.io/badge/license-GPL--2.0-3b352f)](LICENSE)
-[![Cameras](https://img.shields.io/badge/cameras-8%20work%20%C2%B7%206%20with%20a%20problem%20%C2%B7%202%20in%20testing-3b352f)](#กล้องที่รองรับ)
+[![Cameras](https://img.shields.io/badge/cameras-9%20work%20%C2%B7%206%20with%20a%20problem%20%C2%B7%202%20in%20testing-3b352f)](#กล้องที่รองรับ)
 [![Films](https://img.shields.io/badge/films-72-3b352f)](FILMS.md)
 
 [English](README.md) · **ภาษาไทย** · [ฟิล์ม](#ฟิล์ม-72-แบบ) · [กล้องที่รองรับ](#กล้องที่รองรับ) · [Darkrooms](#ล้างบนคอม-darkrooms) · [คู่มือในกล้อง](docs/MANUAL.th.md) · [ทำต่อยอด](PORTING.md)
@@ -209,6 +209,7 @@ M-Film ทำบน EOS M และใช้ได้จริงบนรุ่
 | Canon EOS 5D Mark III (firmware 1.1.3) | 1.1.3 | ⚠️ ลองแล้ว ยังมีปัญหา | เปิดและถ่ายได้ ห้องมืดในกล้องหาไฟล์ RAW ไม่เจอ ([#31](../../issues/31)) แก้แล้วใน 0.1.3 ตั้งแต่ 0.2 film OS โหลดเป็นโมดูลบนรุ่นนี้ด้วย (เหมือน 550D และ 650D) ยังไม่มีคนยืนยันบนรุ่นนี้ ลองแล้วแจ้งผลได้ | `M-Film-camera-5D3.113.zip` |
 | Canon EOS 5D Mark III (firmware 1.2.3) | 1.2.3 | ⚠️ ลองแล้ว ยังมีปัญหา | เปิดและถ่ายได้ ห้องมืดในกล้องหาไฟล์ RAW ไม่เจอ ([#16](../../issues/16), [#37](../../issues/37)) แก้แล้วใน 0.1.3 ตั้งแต่ 0.2 film OS โหลดเป็นโมดูลบนรุ่นนี้ด้วย (เหมือน 550D และ 650D) ยังไม่มีคนยืนยันบนรุ่นนี้ ลองแล้วแจ้งผลได้ | `M-Film-camera-5D3.123.zip` |
 | Canon EOS 6D | 1.1.6 | ✅ **ใช้ได้** | ใช้ได้ตั้งแต่ 0.1.2 ([#17](../../issues/17), [#22](../../issues/22)) ตั้งแต่ 0.2 film OS โหลดเป็นโมดูลบนรุ่นนี้ด้วย (เหมือน 550D และ 650D) ยังไม่มีคนยืนยันบนรุ่นนี้ ลองแล้วแจ้งผลได้ 0.2 ถือจอไว้จนบันทึกรูปเสร็จ และตัวเลขสว่างเมื่อหมุนปุ่ม ([#17](../../issues/17), [#23](../../issues/23)) ถ้ายังเป็นอยู่แจ้งได้ | `M-Film-camera-6D.116.zip` |
+| Canon EOS 6D Mark II | 1.1.1 | ✅ **ใช้ได้** | This fork only (branch 6d2), on Magic Lantern's DIGIC 7 port: the film OS as a module, built for the Cortex-A9 (fork/ml-patches/6D2.111). Tried on one camera: shoots, develops Small, Medium and Large prints. | `M-Film-camera-6D2.111.zip` |
 | Canon EOS 50D | 1.0.9 | ✅ **ใช้ได้** | ใช้ได้ ([#43](../../issues/43)) 0.1.5 วาดจอใหม่เมื่อ Canon วาดทับ แต่อาจยังกะพริบอยู่เล็กน้อยเหมือนบน 500D 0.1.6 ประกอบภาพฝาบนกล้องนอกจอก่อน แล้ววาดกลับเฉพาะแถวที่ Canon วาดทับ รอรายงานใน [#64](../../issues/64) ตั้งแต่ 0.2 film OS โหลดเป็นโมดูลบนรุ่นนี้ด้วย (เหมือน 550D และ 650D) ยังไม่มีคนยืนยันบนรุ่นนี้ ลองแล้วแจ้งผลได้ | `M-Film-camera-50D.109.zip` |
 | Canon EOS 60D | 1.1.1 | ✅ **ใช้ได้** | ใช้ได้ตั้งแต่ 0.1.3 ([#25](../../issues/25)) 0.1.5 ตั้งการหมุนจอเองได้ ([#49](../../issues/49)) ตั้งแต่ 0.2 film OS โหลดเป็นโมดูลบนรุ่นนี้ด้วย (เหมือน 550D และ 650D) ยังไม่มีคนยืนยันบนรุ่นนี้ ลองแล้วแจ้งผลได้ | `M-Film-camera-60D.111.zip` |
 | Canon EOS 70D | 1.1.2 | ⚠️ ลองแล้ว ยังมีปัญหา | 0.1.5 ใช้ได้บน 70D ของผู้ทดสอบคนหนึ่ง แบบ film OS เป็นโมดูล ([#40](../../issues/40)) อีกคนติดตั้ง Magic Lantern ได้ แต่เปิดเครื่องแล้วเข้า firmware ของ Canon ([#58](../../issues/58)) ต้องการรายงานเพิ่ม | `M-Film-camera-70D.112.zip` |
@@ -221,7 +222,7 @@ M-Film ทำบน EOS M และใช้ได้จริงบนรุ่
 | Canon EOS 1100D / Rebel T3 / Kiss X50 | 1.0.5 | 🧪 build ได้แล้ว รอคนทดสอบ | film OS แบบโมดูลพอดีหน่วยความจำตอนบูต (493,056 จาก 524,032 ไบต์) รอคนลองเป็นคนแรก | `M-Film-camera-1100D.105.zip` |
 | Canon EOS 1300D / Rebel T6 / Kiss X80 | 1.1.0 | 🧪 build ได้แล้ว รอคนทดสอบ | ใหม่ใน 0.2.1 ใช้พอร์ต 1300D ของ Magic Lantern ที่ยังใหม่และเป็นรุ่นทดลอง ติดตั้งด้วย mlinstall ผ่าน USB ไม่ใช่การอัปเดต firmware ([TESTING.md](TESTING.md#canon-eos-1300d)) ใส่ฟิล์มแล้วกล้องจะไม่ปรับ ISO, white balance และ picture style ให้ เพราะ Magic Lantern ยังเปลี่ยนค่ากล้องบน 1300D ไม่ได้ ลุคฟิล์มจะมาตอนล้างฟิล์ม firmware 1.1.0 ของ Canon มีสองแบบ ถ้าเปิดเครื่องแล้วค้าง ให้ถอดแบตแล้วใส่การ์ดเดิมกลับ รอคนลองเป็นคนแรก | `M-Film-camera-1300D.110.zip` |
 
-**ยังไม่รองรับ:** 5D Mark IV, 5DS R, 6D Mark II, 7D Mark II, 77D, 80D, 200D, 750D, 850D, M50, R, R5, R6, RP, SX70 HS, SX740 HS (Magic Lantern เองยังเป็นรุ่นทดลองบนกล้องเหล่านี้) · 7D (source ปัจจุบันของ Magic Lantern build รุ่นนี้ไม่ได้)
+**ยังไม่รองรับ:** 5D Mark IV, 5DS R, 7D Mark II, 77D, 80D, 200D, 750D, 850D, M50, R, R5, R6, RP, SX70 HS, SX740 HS (Magic Lantern เองยังเป็นรุ่นทดลองบนกล้องเหล่านี้) · 7D (source ปัจจุบันของ Magic Lantern build รุ่นนี้ไม่ได้)
 <!-- cameras:end -->
 
 ✅ ลองบนกล้องแล้ว ใช้ได้ · ⚠️ ลองแล้ว ยังมีปัญหา · 🧪 build ได้แล้ว รอคนลอง ตั้งแต่ 0.2 film OS เป็นโมดูลบนทุกรุ่น ([เหตุผล](ml-dev/MEMORY.md)) รุ่นละ zip เดียว ไฟล์ลงการ์ดอยู่ใน [release](../../releases/latest) แต่ละเวอร์ชัน

@@ -37,7 +37,7 @@ static void nd_draw()
 
 static void nd_key(int k)
 {
-    if (k == FK_MENU || k == FK_SET || k == FK_PLAY) ui_go(SCR_HOME, HOME_DARK, GO_POP);
+    if (k == FK_MENU || k == FK_SET || k == FK_PLAY) ui_go(SCR_HOME, 2, GO_POP);
 }
 
 void dark_enter(int arg) { nd_bake(); }
@@ -48,6 +48,8 @@ void dark_draw() { nd_draw(); }
 
 void dark_queue_clear() {}
 void dark_queue_add(int roll) {}
+void dark_queue_add_new(int roll) {}
+int  dark_pending(int roll) { return 0; }
 void develop_enter(int arg) { nd_bake(); }
 void develop_leave() {}
 void develop_key(int k) { nd_key(k); }

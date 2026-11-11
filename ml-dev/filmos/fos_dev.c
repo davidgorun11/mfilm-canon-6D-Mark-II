@@ -1,3 +1,7 @@
+/* the darkroom is where the camera spends its seconds: this file is built for speed, the rest of ML for size */
+#ifdef CONFIG_MAGICLANTERN
+#pragma GCC optimize ("O2")
+#endif
 /* fos_dev: developing film in the camera, a frame at a time.
  *
  * The frame's CR2 is read a chunk at a time and its lossless JPEG decoded;
@@ -15,6 +19,15 @@
  */
 
 #include "fos.h"
+/* microseconds, to see where the big print's time goes (the log at its end) */
+#ifdef CONFIG_MAGICLANTERN
+extern unsigned long long get_us_clock(void);
+#define FOS_US() ((unsigned) get_us_clock())
+#else
+#include <time.h>
+static unsigned fos_us_pc(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return (unsigned) (t.tv_sec * 1000000 + t.tv_nsec / 1000); }
+#define FOS_US() fos_us_pc()
+#endif
 #include "fos_dev.h"
 #include "fos_jpeg.h"
 #include <math.h>
@@ -418,7 +431,10 @@ struct fos_dev
     int bstraight;                      /* the print's columns are the sensor's, in order (big_row) */
     int bsize;                          /* FOS_SIZE_* it comes to */
     int bw, bh;                         /* its size, upright */
-    uint16_t **brow;                    /* each row's sums, 3 per pixel */
+    uint16_t **brow;                    /* each row's sums, 3 per pixel; a portrait frame's are its columns (btrans) */
+    int btrans;                         /* stored a column to a row, as the sensor's rows run (portrait): see big_setup */
+    uint16_t *bblk;                     /* a portrait frame's BIG_ROWS rows, gathered from its columns to be finished */
+    unsigned bus[9];                    /* us in the big print's parts: gather, cam, lin, pos, lut, grain, jpeg, dither, write */
     uint16_t *bband[BIG_BANDS];
     uint8_t *barena;                    /* the block the tables below are in */
     uint16_t *bcmap, *brmap;            /* raw column / row -> its line of the print, 0xFFFF: none */
@@ -899,23 +915,29 @@ static int big_setup(struct fos_dev *d, int size)
     /* The sums in pieces of a megabyte at most: Magic Lantern gives those
      * straight from the camera's picture memory, where for a bigger block
      * it first takes all of that memory to see what is there. */
-    int per = ((1 << 20) - 64) / (bw * 6);                  /* rows in a piece */
+    /* A portrait frame's sums are kept a column of the print to a row (srows of slen pixels): the sensor's
+     * rows run down the print's columns, and summed into the print's rows each sample went to another row,
+     * every one of them a trip to the camera's memory (17 s of a frame on the 6D Mark II). Its columns are
+     * gathered into rows BIG_ROWS at a time when it is finished (big_rows). */
+    const int srows = portrait ? bw : bh, slen = portrait ? bh : bw;
+    int per = ((1 << 20) - 64) / (slen * 6);                /* rows in a piece */
     if (per < 1) per = 1;
-    int nb = (bh + per - 1) / per;
+    int nb = (srows + per - 1) / per;
     if (nb > BIG_BANDS) return 0;
     int line = bw > bh ? bw : bh;
     /* everything else it needs in one block (word-sized things first), so
      * the camera's small heaps, which Canon lives on too, aren't asked */
-    const int n_row = bh * (int) sizeof(uint16_t *), n_32 = bw * 3 * 4, n_err = (bw + 2) * 3 * 2 * 2;
+    const int n_row = srows * (int) sizeof(uint16_t *), n_blk = portrait ? BIG_ROWS * bw * 3 * 2 : 0, n_32 = bw * 3 * 4, n_err = (bw + 2) * 3 * 2 * 2;
     const int n_cmap = (d->raw_w * 2 + 3) & ~3, n_rmap = (d->raw_h * 2 + 3) & ~3, n_cnt = line * 2 * 4;
     const int n_cam = bw * 3 * 2 * 2, n_vig = ((bw + bh) * 2 + 3) & ~3;
     const int n_rgb = (BIG_ROWS * bw * 3 + 3) & ~3, n_idx = (BIG_ROWS * bw + 3) & ~3, n_g = bw * 2;
-    const int total = n_row + n_32 + n_err + n_cmap + n_rmap + n_cnt + n_cam + n_vig + n_rgb + n_idx + n_g;
+    const int total = n_row + n_blk + n_32 + n_err + n_cmap + n_rmap + n_cnt + n_cam + n_vig + n_rgb + n_idx + n_g;
     uint8_t *a = d->barena = fos_port_alloc(total);
     int ok = a != 0;
     if (ok)
     {
         d->brow = (uint16_t **) a; a += n_row;
+        d->bblk = portrait ? (uint16_t *) a : 0; a += n_blk;
         d->b32 = (uint32_t *) a; a += n_32;
         d->berr = (int16_t *) a; a += n_err;
         d->bcmap = (uint16_t *) a; a += n_cmap;
@@ -929,11 +951,11 @@ static int big_setup(struct fos_dev *d, int size)
     }
     for (int i = 0; ok && i < nb; i++)
     {
-        int rows = i == nb - 1 ? bh - i * per : per;
-        d->bband[i] = fos_port_alloc(rows * bw * 6);
+        int rows = i == nb - 1 ? srows - i * per : per;
+        d->bband[i] = fos_port_alloc(rows * slen * 6);
         if (!d->bband[i]) { ok = 0; break; }
-        memset(d->bband[i], 0, rows * bw * 6);
-        for (int r = 0; r < rows; r++) d->brow[i * per + r] = d->bband[i] + r * bw * 3;
+        memset(d->bband[i], 0, rows * slen * 6);
+        for (int r = 0; r < rows; r++) d->brow[i * per + r] = d->bband[i] + r * slen * 3;
     }
     /* and room left for what the screen's print still has to take once the
      * RAW is read (its RGB, the palette's tables): a megabyte and a half,
@@ -983,6 +1005,7 @@ static int big_setup(struct fos_dev *d, int size)
     d->big = f; d->bshift = sh; d->bsize = size;
     d->bw = bw; d->bh = bh;
     d->bstraight = !portrait && !cflip;
+    d->btrans = portrait;
     snprintf(msg, sizeof(msg), "dev: a %d x %d print too (the sensor %d x %d to a pixel, %d KB in %d pieces)", bw, bh, f, f,
              bw * bh * 6 / 1024, nb);
     fos_port_log(msg);
@@ -1304,8 +1327,9 @@ static __attribute__((noinline)) void big_row(struct fos_dev *d, const uint16_t 
             if (++r == f) { r = 0; p += 3; }
         }
     }
-    else if (!d->rows_axis_x)
+    else if (!d->rows_axis_x || d->btrans)
     {
+        /* a row of the print, or a column of a portrait one (btrans): along it either way */
         uint16_t *row = d->brow[o] + rs;
         for (int x = pa; x < pb; x++)
         {
@@ -2362,15 +2386,18 @@ static __attribute__((noinline)) void big_finish(struct fos_dev *d, int y, uint8
 {
     const int bw = d->bw, sh = d->bshift;
     const struct fos_look *L = d->look;
-    const uint16_t *s = d->brow[y];
+    const uint16_t *s = d->btrans ? d->bblk + (y % BIG_ROWS) * bw * 3 : d->brow[y];
     uint32_t *t32 = d->b32;
+    unsigned u0 = FOS_US(), u1;
     for (int i = 0; i < 3 * bw; i++) t32[i] = (uint32_t) s[i] << sh;
     int a, b;
     const uint16_t *ra, *rb;
     if (d->rows_axis_x) { a = d->bne_c[y]; b = d->bno_c[y]; ra = d->bne_r; rb = d->bno_r; }
     else { a = d->bne_r[y]; b = d->bno_r[y]; ra = d->bne_c; rb = d->bno_c; }
     expose_cam(d, t32, d->bcam, bw, a, b, ra, rb);
+    u1 = FOS_US(); d->bus[1] += u1 - u0; u0 = u1;
     expose_lin(d, d->bcam, d->blin, bw, 0, 0);
+    u1 = FOS_US(); d->bus[2] += u1 - u0; u0 = u1;
     int hal[3];
     for (int c = 0; c < 3; c++) hal[c] = d->glow ? (int) (L->halation * L->hal_tint[c] * 256) : 0;
     int32_t grow[GW];
@@ -2382,24 +2409,45 @@ static __attribute__((noinline)) void big_finish(struct fos_dev *d, int y, uint8
         for (int j = 0; j < GW; j++) grow[j] = g0[j] * (8 - fy) + g1[j] * fy;
     }
     finish_pos(d->blin, d->bcam, bw, 4096 - d->bvig_y[y], d->bvig_x, d->glow ? grow : 0, d->bgx, d->bfx, hal);
+    u1 = FOS_US(); d->bus[3] += u1 - u0; u0 = u1;
     finish_lut(d->bcam, rgb, bw);
+    u1 = FOS_US(); d->bus[4] += u1 - u0; u0 = u1;
     int grain = (int) (L->grain * 255 * 0.55f * 256);
     if (grain) d->seed = big_grain(rgb, bw, d->seed, grain, L->mono);
     stamp_row(d->smask[1], d->sm_w[1], d->sm_h[1], rgb, bw, d->bh, y);
+    d->bus[5] += FOS_US() - u0;
 }
 
 /* its next rows, to the JPEG and the zoom file */
 static void big_rows(struct fos_dev *d)
 {
     const int bw = d->bw, y0 = d->row, n = d->bh - y0 < BIG_ROWS ? d->bh - y0 : BIG_ROWS;
+    unsigned u0 = FOS_US(), u1;
+    if (d->btrans)
+    {
+        /* a portrait frame: these rows from its columns, a short run of each column at a time */
+        uint16_t *blk = d->bblk;
+        for (int o = 0; o < bw; o++)
+        {
+            const uint16_t *s = d->brow[o] + 3 * y0;
+            uint16_t *t = blk + 3 * o;
+            for (int i = 0; i < n; i++, s += 3, t += bw * 3) { t[0] = s[0]; t[1] = s[1]; t[2] = s[2]; }
+        }
+    }
+    d->bus[0] += FOS_US() - u0;
     for (int i = 0; i < n; i++)
         big_finish(d, y0 + i, d->brgb + i * bw * 3);
+    u0 = FOS_US();
     if (d->bjpeg) fos_jpeg_rows(d->bjpeg, d->brgb, bw * 3, n);
+    u1 = FOS_US(); d->bus[6] += u1 - u0; u0 = u1;
     if (d->bzoom)
     {
         for (int i = 0; i < n; i++)
             big_dither(d, d->brgb + i * bw * 3, d->bidx + i * bw, y0 + i);
-        if (fos_port_write(d->bzoom, d->bidx, n * bw) != n * bw)
+        u1 = FOS_US(); d->bus[7] += u1 - u0; u0 = u1;
+        int wr = fos_port_write(d->bzoom, d->bidx, n * bw);
+        d->bus[8] += FOS_US() - u0;
+        if (wr != n * bw)
         {
             fos_port_log("dev: the zoom file couldn't all be written");
             fos_port_close(d->bzoom);
@@ -2411,6 +2459,14 @@ static void big_rows(struct fos_dev *d)
 
 static void big_end(struct fos_dev *d)
 {
+    {
+        char t[200];
+        const unsigned *u = d->bus;
+        snprintf(t, sizeof(t), "dev: big print ms: gather %d, cam %d, lin %d, pos %d, lut %d, grain %d, jpeg %d, dither %d, write %d",
+                 (int) (u[0] / 1000), (int) (u[1] / 1000), (int) (u[2] / 1000), (int) (u[3] / 1000), (int) (u[4] / 1000),
+                 (int) (u[5] / 1000), (int) (u[6] / 1000), (int) (u[7] / 1000), (int) (u[8] / 1000));
+        fos_port_log(t);
+    }
     if (d->bjpeg && !fos_jpeg_end(d->bjpeg))
     {
         char msg[200];

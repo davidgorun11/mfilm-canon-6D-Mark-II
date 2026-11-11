@@ -3,11 +3,8 @@
  *
  * Unlike the film OS screens this draws with Canon's palette (LiveView
  * shows through index 0, and Canon keeps drawing its own bits), so it
- * takes the indices it may use from the caller. The camera puts it
- * together off-screen a band of rows at a time (fos_hud_draw_rows,
- * fos_hud_plate_rows) and copies to the screen only the rows that changed:
- * drawn straight onto the screen, each redraw showed for a moment what it
- * starts with (#44, #64).
+ * takes the indices it may use from the caller and draws straight into
+ * the overlay buffer.
  */
 
 #include "fos.h"
@@ -21,32 +18,18 @@
 #define THIRD_PX 14                     /* scale spacing per 1/3 stop */
 #define SCALE_TOP 26                    /* y of f/22; f/1 sits 27 thirds below */
 
-/* the focusing screen's box in the middle of the view */
-#define BOX_N    129
-#define BOX_X    (VIEW_W / 2 - 64)
-#define BOX_Y    (VIEW_H / 2 - 64)
-
 static uint8_t *vr;
 static int vp;
 static const struct fos_hud_palette *pal;
-/* the band being drawn: screen rows org_y .. org_y + band_h, vr is org_y */
-static int org_y = 0, band_h = H;
 
 static void fill(int x, int y, int w, int h, uint8_t c)
 {
-    y -= org_y;
     if (x < 0) { w += x; x = 0; }
     if (y < 0) { h += y; y = 0; }
     if (x + w > W) w = W - x;
-    if (y + h > band_h) h = band_h - y;
+    if (y + h > H) h = H - y;
     for (int j = 0; j < h; j++)
         memset(vr + (y + j) * vp + x, c, w > 0 ? w : 0);
-}
-
-static void band(uint8_t *buf, int pitch, int y0, int n, const struct fos_hud_palette *p)
-{
-    vr = buf; vp = pitch; pal = p;
-    org_y = y0; band_h = n;
 }
 
 static int fstop_y(int index)
@@ -61,7 +44,7 @@ static int text_gray(const struct fos_font *f, int x, int y, const char *s, int 
     map[0] = 0;
     for (int i = 1; i < 16; i++)
         map[i] = i < 3 ? 0 : pal->gray[pct * i / 15];
-    return fos_text_map(vr, vp, W, band_h, f, x, y - org_y, s, map, track);
+    return fos_text_map(vr, vp, W, H, f, x, y, s, map, track);
 }
 
 static int text_led(const struct fos_font *f, int x, int y, const char *s, int on, int track)
@@ -69,7 +52,7 @@ static int text_led(const struct fos_font *f, int x, int y, const char *s, int o
     uint8_t map[16];
     for (int i = 0; i < 16; i++)
         map[i] = i < 5 ? 0 : !on ? pal->gray[i < 10 ? 6 : 9] : i < 10 ? pal->dark_red : pal->red;
-    return fos_text_map(vr, vp, W, band_h, f, x, y - org_y, s, map, track);
+    return fos_text_map(vr, vp, W, H, f, x, y, s, map, track);
 }
 
 /* ---------------------------------------------------------------- seven segments */
@@ -106,7 +89,6 @@ static void seg_size(int w, int h, int t, int gap)
  * you can just see behind a real viewfinder mask */
 static void seg_digit(int x, int y, int bits, uint8_t on, uint8_t off)
 {
-    if (y - org_y >= band_h || y + DIG_H - org_y <= 0) return;     /* not in this band */
     int half = DIG_H / 2;
     for (int r = 0; r < DIG_H; r++)
     {
@@ -171,125 +153,9 @@ static void needle(int y, uint8_t c)
 
 /* ---------------------------------------------------------------- the HUD */
 
-/* the battery, 21 x 10: its charge as a bar, red when it is nearly flat */
-static void batt_icon(int x, int y, int pct)
-{
-    uint8_t line = pal->gray[pct <= 10 ? 70 : 46];
-    fill(x, y, 19, 1, line);
-    fill(x, y + 9, 19, 1, line);
-    fill(x, y, 1, 10, line);
-    fill(x + 18, y, 1, 10, line);
-    fill(x + 19, y + 3, 2, 4, line);
-    fill(x + 1, y + 1, 17, 8, pal->black);
-    int w = pct <= 0 ? 0 : 1 + pct * 14 / 100;
-    fill(x + 2, y + 2, w, 6, pct <= 10 ? pal->red : pal->gray[pct <= 30 ? 60 : 82]);
-}
-
-/* the focusing screen: microprism collar and split-image circle */
-static void focus_screen(int cx, int cy)
-{
-    for (int a = 0; a < 360; a += 2)
-    {
-        int c = fos_cos(a * 65536 / 360), s = fos_sin(a * 65536 / 360);
-        int x = cx + c * 62 / 4096, y = cy + s * 62 / 4096;
-        fill(x, y, 1, 1, pal->gray[70]);
-        x = cx + c * 28 / 4096; y = cy + s * 28 / 4096;
-        fill(x, y, 1, 1, pal->white);
-    }
-    fill(cx - 28, cy, 57, 1, pal->white);
-}
-
-/* the frame counter at x: "12" and "/36", or End blinking; returns its width */
-static int counter(int x, int ty, int base, const struct fos_hud *h, int lit)
-{
-    if (h->finished)
-        return seg_text(x, ty, h->blink ? "End" : "   ", 1);
-    char n[8];
-    snprintf(n, sizeof(n), "%d", h->frame);
-    int w = seg_text(x, ty, n, lit);
-    snprintf(n, sizeof(n), "/%d", h->exposures);
-    return w + 2 + text_gray(&fos_font_sm, x + w + 2, base - 2, n, lit ? 55 : 28, 0);
-}
-
-/* the meter along a line from x0 to x1: two stops under to two over, in
- * thirds, the needle where the light is against the aperture set */
-static void meter_line(int x0, int x1, int y, const struct fos_hud *h)
-{
-    int mc = (x0 + x1) / 2, step = (x1 - x0) / 12;
-    fill(mc - 6 * step, y, 12 * step + 1, 1, pal->gray[30]);
-    for (int t = -6; t <= 6; t++)
-    {
-        int big = t % 3 == 0;
-        fill(mc + t * step, y - (big ? 5 : 2), t == 0 ? 2 : 1, big ? 11 : 5, pal->gray[t == 0 ? 80 : big ? 50 : 28]);
-    }
-    if (!h->lit || !h->meter) return;
-    int thirds = h->want - h->fstop;                /* + : more light than the aperture set wants */
-    int out = thirds > 6 || thirds < -6;
-    thirds = thirds > 6 ? 6 : thirds < -6 ? -6 : thirds;
-    if (out && !h->blink) return;
-    int x = mc + thirds * step;
-    for (int r = 0; r < 8; r++)
-        fill(x - (7 - r) / 2, y - 14 + r, 8 - r, 1, pal->red);
-}
-
-/* the styles' places on the screen: what each draws on, for fos_hud_spans */
-#define MIN_W    292                    /* the minimal readout, bottom right */
-#define MIN_H    40
-#define MBOX_X   (W / 2 - 64)           /* the focusing screen on a view with no strips */
-#define MBOX_Y   (H / 2 - 64)
-#define RF_BAR   40                     /* the rangefinder's bar along the bottom */
-#define RF_X0    56                     /* its bright frame */
-#define RF_X1    (W - 56)
-#define RF_Y0    36
-#define RF_Y1    (H - RF_BAR - 24)
-#define RF_ARM   44
-#define RF_PW    64                     /* the rangefinder patch */
-#define RF_PH    44
-#define CLEAN_W  176                    /* the clean viewfinder's count, bottom right */
-
 void fos_hud_draw(uint8_t *vram, int pitch, const struct fos_hud *h, const struct fos_hud_palette *p)
 {
-    fos_hud_draw_rows(vram, pitch, 0, H, h, p);
-}
-
-/* the parts of screen row y the HUD draws on, as x0, x1 pairs: for the
- * classic one the meter strip, the focusing screen's box and the LED bar.
- * Returns how many numbers it put in x: 0, 2 or 4. fos_hud_clear wipes
- * these, and a camera that puts the HUD together off-screen copies them. */
-int fos_hud_spans(int style, int y, int x[4])
-{
-    int n = 0;
-    switch (style)
-    {
-        case FOS_HUD_MINIMAL:
-            if (y >= H - MIN_H) { x[n++] = W - MIN_W; x[n++] = W; }
-            else if (y >= MBOX_Y && y < MBOX_Y + BOX_N) { x[n++] = MBOX_X; x[n++] = MBOX_X + BOX_N; }
-            return n;
-        case FOS_HUD_RANGE:
-            if (y >= H - RF_BAR) { x[n++] = 0; x[n++] = W; }
-            else if ((y >= RF_Y0 && y < RF_Y0 + RF_ARM) || (y >= RF_Y1 - RF_ARM && y < RF_Y1))
-            {
-                x[n++] = RF_X0; x[n++] = RF_X0 + RF_ARM;
-                x[n++] = RF_X1 - RF_ARM; x[n++] = RF_X1;
-            }
-            else if (y >= (RF_Y0 + RF_Y1 - RF_PH) / 2 && y < (RF_Y0 + RF_Y1 + RF_PH) / 2)
-            {
-                x[n++] = (W - RF_PW) / 2; x[n++] = (W + RF_PW) / 2;
-            }
-            return n;
-        case FOS_HUD_CLEAN:
-            if (y >= H - MIN_H) { x[n++] = W - CLEAN_W; x[n++] = W; }
-            return n;
-    }
-    if (y >= VIEW_H) { x[0] = 0; x[1] = W; return 2; }
-    if (y >= BOX_Y && y < BOX_Y + BOX_N) { x[n++] = BOX_X; x[n++] = BOX_X + BOX_N; }
-    x[n++] = W - STRIP_W; x[n++] = W;
-    return n;
-}
-
-/* the classic one: an SLR's finder */
-static void hud_classic(const struct fos_hud *h, const struct fos_hud_palette *p)
-{
+    vr = vram; vp = pitch; pal = p;
     uint8_t bg = p->black;
     char label[8];
 
@@ -327,8 +193,6 @@ static void hud_classic(const struct fos_hud *h, const struct fos_hud_palette *p
         if (!out || h->blink)
             needle(y, p->red);
     }
-    /* the battery, under the scale */
-    if (h->batt >= 0) batt_icon(sx + 23, VIEW_H - 15, h->batt);
 
     /* the LED strip */
     int by = VIEW_H;
@@ -356,7 +220,17 @@ static void hud_classic(const struct fos_hud *h, const struct fos_hud_palette *p
     }
 
     /* the frame counter, END at the end */
-    counter(452, ty, base, h, h->lit || h->finished);
+    int lit_count = h->lit || h->finished;
+    if (h->finished)
+        seg_text(452, ty, h->blink ? "End" : "   ", 1);
+    else
+    {
+        char n[8];
+        snprintf(n, sizeof(n), "%d", h->frame);
+        int w = seg_text(452, ty, n, lit_count);
+        snprintf(n, sizeof(n), "/%d", h->exposures);
+        text_gray(&fos_font_sm, 452 + w + 2, base - 2, n, lit_count ? 55 : 28, 0);
+    }
 
     /* which film, quietly */
     if (h->film)
@@ -365,128 +239,29 @@ static void hud_classic(const struct fos_hud *h, const struct fos_hud_palette *p
         text_gray(&fos_font_xs, W - 22 - w, base - 6, h->film, 40, 32);
     }
 
-    if (h->focus_screen) focus_screen(VIEW_W / 2, VIEW_H / 2);
-}
-
-/* the minimal one: the view to its edges, and in the corner the meter
- * against the aperture set, the aperture and the frame */
-static void hud_minimal(const struct fos_hud *h, const struct fos_hud_palette *p)
-{
-    int x0 = W - MIN_W, by = H - MIN_H;
-    fill(x0, by, MIN_W, MIN_H, p->black);
-    fill(x0, by, MIN_W, 1, p->gray[18]);
-    fill(x0, by, 1, MIN_H, p->gray[18]);
-    int ty = by + (MIN_H - DIG_H) / 2 + 1, base = ty + DIG_H;
-    char label[8];
-    if (h->batt >= 0) batt_icon(x0 + 12, by + 15, h->batt);
-    if (h->need_wind)
-        text_led(&fos_font_mdb, x0 + 46, base - 3, "WIND", h->blink, 16);
-    else
-        meter_line(x0 + 46, x0 + 106, by + 24, h);
-    text_gray(&fos_font_xs, x0 + 122, base - 4, "f", h->lit ? 70 : 30, 0);
-    fos_format_fstop(label, sizeof(label), h->fstop);
-    seg_text(x0 + 134, ty, label, h->lit);
-    counter(x0 + 200, ty, base, h, 1);
-    if (h->focus_screen) focus_screen(W / 2, H / 2);
-}
-
-/* the rangefinder's: bright frame lines around the picture, the patch in
- * the middle, and a bar below with the needle between under and over */
-static void hud_range(const struct fos_hud *h, const struct fos_hud_palette *p)
-{
-    /* the frame's corners */
-    for (int c = 0; c < 4; c++)
-    {
-        int right = c & 1, low = c >> 1;
-        int hx = right ? RF_X1 - RF_ARM : RF_X0, hy = low ? RF_Y1 - 2 : RF_Y0;
-        int vx = right ? RF_X1 - 2 : RF_X0, vy = low ? RF_Y1 - RF_ARM : RF_Y0;
-        fill(hx, hy, RF_ARM, 2, p->white);
-        fill(vx, vy, 2, RF_ARM, p->white);
-    }
+    /* focusing screen: microprism collar and split-image circle */
     if (h->focus_screen)
     {
-        int px = (W - RF_PW) / 2, py = (RF_Y0 + RF_Y1 - RF_PH) / 2;
-        fill(px, py, RF_PW, 1, p->gray[80]);
-        fill(px, py + RF_PH - 1, RF_PW, 1, p->gray[80]);
-        fill(px, py, 1, RF_PH, p->gray[80]);
-        fill(px + RF_PW - 1, py, 1, RF_PH, p->gray[80]);
-    }
-
-    int by = H - RF_BAR;
-    fill(0, by, W, RF_BAR, p->black);
-    fill(0, by, W, 1, p->gray[18]);
-    int ty = by + (RF_BAR - DIG_H) / 2 + 1, base = ty + DIG_H;
-    char label[8];
-    int x = 16;
-    if (h->batt >= 0) { batt_icon(x, by + 15, h->batt); x += 36; }
-    seg_text(x, ty, h->shutter, h->lit);
-    text_gray(&fos_font_xs, 166, base - 4, "f", h->lit ? 70 : 30, 0);
-    fos_format_fstop(label, sizeof(label), h->fstop);
-    seg_text(178, ty, label, h->lit);
-    meter_line(264, 456, by + 24, h);
-    int cw = counter(488, ty, base, h, 1);
-    /* the film, or the wind reminder in its place */
-    if (h->need_wind)
-        text_led(&fos_font_mdb, W - 86, base - 3, "WIND", h->blink, 16);
-    else if (h->film)
-    {
-        int w = fos_text_w(&fos_font_xs, h->film, 32);
-        if (W - 16 - w > 488 + cw + 12)
-            text_gray(&fos_font_xs, W - 16 - w, base - 6, h->film, 40, 32);
+        int cx = VIEW_W / 2, cy = VIEW_H / 2;
+        for (int a = 0; a < 360; a += 2)
+        {
+            int c = fos_cos(a * 65536 / 360), s = fos_sin(a * 65536 / 360);
+            int x = cx + c * 62 / 4096, y = cy + s * 62 / 4096;
+            fill(x, y, 1, 1, p->gray[70]);
+            x = cx + c * 28 / 4096; y = cy + s * 28 / 4096;
+            fill(x, y, 1, 1, p->white);
+        }
+        fill(cx - 28, cy, 57, 1, p->white);
     }
 }
 
-/* the clean one: LiveView alone, and the frame count in the corner for a
- * moment after each shot, when the film wants winding and at the end */
-static void hud_clean(const struct fos_hud *h, const struct fos_hud_palette *p)
+/* make our strips transparent again so LiveView shows through */
+void fos_hud_clear(uint8_t *vram, int pitch, const struct fos_hud_palette *p)
 {
-    int x0 = W - CLEAN_W, by = H - MIN_H;
-    /* drawn straight onto the screen (the EOS M: all of it at once), its
-     * corner is wiped once when the count goes, not every time: Canon may
-     * have something of its own there */
-    static int up;
-    const int whole = band_h == H;
-    if (!h->flash && !h->need_wind && !h->finished)
-    {
-        if (up || !whole) fill(x0, by, CLEAN_W, MIN_H, p->clear);
-        if (whole) up = 0;
-        return;
-    }
-    if (whole) up = 1;
-    fill(x0, by, CLEAN_W, MIN_H, p->black);
-    fill(x0, by, CLEAN_W, 1, p->gray[18]);
-    fill(x0, by, 1, MIN_H, p->gray[18]);
-    int ty = by + (MIN_H - DIG_H) / 2 + 1, base = ty + DIG_H;
-    if (h->batt >= 0) batt_icon(x0 + 12, by + 15, h->batt);
-    if (h->need_wind && !h->flash)
-        text_led(&fos_font_mdb, x0 + 60, base - 3, "WIND", h->blink, 24);
-    else
-        counter(x0 + 60, ty, base, h, 1);
-}
-
-void fos_hud_draw_rows(uint8_t *buf, int pitch, int y0, int rows, const struct fos_hud *h, const struct fos_hud_palette *p)
-{
-    band(buf, pitch, y0, rows, p);
-    switch (h->style)
-    {
-        case FOS_HUD_MINIMAL: hud_minimal(h, p); break;
-        case FOS_HUD_RANGE:   hud_range(h, p); break;
-        case FOS_HUD_CLEAN:   hud_clean(h, p); break;
-        default:              hud_classic(h, p); break;
-    }
-    band(vr, vp, 0, H, p);
-}
-
-/* make what a style draws on transparent again, so LiveView shows through */
-void fos_hud_clear(uint8_t *vram, int pitch, int style, const struct fos_hud_palette *p)
-{
-    band(vram, pitch, 0, H, p);
-    for (int y = 0; y < H; y++)
-    {
-        int x[4], n = fos_hud_spans(style, y, x);
-        for (int i = 0; i < n; i += 2)
-            fill(x[i], y, x[i + 1] - x[i], 1, p->clear);
-    }
+    vr = vram; vp = pitch; pal = p;
+    fill(W - STRIP_W, 0, STRIP_W, VIEW_H, p->clear);
+    fill(0, VIEW_H, W, BAR_H, p->clear);
+    fill(VIEW_W / 2 - 64, VIEW_H / 2 - 64, 129, 129, p->clear);
 }
 
 /* ---------------------------------------------------------------- the top plate */
@@ -502,26 +277,12 @@ void fos_hud_clear(uint8_t *vram, int pitch, int style, const struct fos_hud_pal
  * film and its speed. */
 void fos_hud_plate(uint8_t *vram, int pitch, const struct fos_hud *h, const struct fos_hud_palette *p)
 {
-    fos_hud_plate_rows(vram, pitch, 0, H, h, p);
-}
-
-void fos_hud_plate_rows(uint8_t *buf, int pitch, int y0, int rows, const struct fos_hud *h, const struct fos_hud_palette *p)
-{
-    band(buf, pitch, y0, rows, p);
+    vr = vram; vp = pitch; pal = p;
     char b[24];
     fill(0, 0, W, H, p->black);
 
     /* the maker's plate: name, and the film loaded */
-    int nx = 28 + text_gray(&fos_font_sm, 28, 40, "M" "\x80" "FILM", 46, 40);
-    if (h->batt >= 0)
-    {
-        batt_icon(nx + 20, 29, h->batt);
-        if (h->batt_exact)
-        {
-            snprintf(b, sizeof(b), "%d%%", h->batt);
-            text_gray(&fos_font_xs, nx + 48, 39, b, h->batt <= 10 ? 80 : 46, 16);
-        }
-    }
+    text_gray(&fos_font_sm, 28, 40, "M" "\x80" "FILM", 46, 40);
     if (h->film)
     {
         int w = fos_text_w(&fos_font_lg, h->film, 0);
@@ -576,7 +337,7 @@ void fos_hud_plate_rows(uint8_t *buf, int pitch, int y0, int rows, const struct 
     text_gray(&fos_font_xs, mx1 + 16, my + 5, "OVER", 30, 24);
     if (h->lit && h->meter)
     {
-        int thirds = h->want - h->fstop;            /* + : brighter than the aperture set wants (over) */
+        int thirds = h->fstop - h->want;            /* + : more light than the aperture set wants */
         int out = thirds > 6 || thirds < -6;
         thirds = thirds > 6 ? 6 : thirds < -6 ? -6 : thirds;
         if (!out || h->blink)
@@ -599,13 +360,12 @@ void fos_hud_plate_rows(uint8_t *buf, int pitch, int y0, int rows, const struct 
     const char *hint = "TRASH  Home     PLAY  Prints";
     int hw = fos_text_w(&fos_font_xs, hint, 24);
     text_gray(&fos_font_xs, W - 28 - hw, H - 22, hint, 36, 24);
-    band(vr, vp, 0, H, p);
 }
 
 /* the plate off: Canon's screen shows again */
 void fos_hud_plate_clear(uint8_t *vram, int pitch, const struct fos_hud_palette *p)
 {
-    band(vram, pitch, 0, H, p);
+    vr = vram; vp = pitch; pal = p;
     fill(0, 0, W, H, p->clear);
 }
 #endif

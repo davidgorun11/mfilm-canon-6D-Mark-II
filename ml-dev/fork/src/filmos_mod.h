@@ -1,10 +1,8 @@
-/* The film OS as a module: the end of filmroll.c when it is built as
- * ML/modules/filmos.mo (build_fork.sh --module), in place of its INIT_FUNC
- * and TASK_CREATE. Included there so it sees filmroll.c's statics. */
+/* The film OS as a module: the end of filmroll.c when it is built as ML/modules/filmos.mo
+ * (modules/filmos), in place of its INIT_FUNC and TASK_CREATE. Included there so it sees
+ * filmroll.c's statics. After M-Film 0.2's fork/src/filmos_mod.h. */
 
-
-/* The settings, saved in ML/SETTINGS/filmos.cfg by the module loader (same
- * names as before: filmroll.roll, filmroll.shot, ...). */
+/* the settings, saved by the module loader in ML/SETTINGS/FILMOS.CFG (same names as before: filmroll.roll ...) */
 MODULE_CONFIGS_START()
     MODULE_CONFIG(film_sel)
     MODULE_CONFIG(exp_sel)
@@ -24,15 +22,6 @@ MODULE_CONFIGS_START()
     MODULE_CONFIG(scr_sat)
     MODULE_CONFIG(scr_warm)
     MODULE_CONFIG(scr_bright)
-    MODULE_CONFIG(scr_flip)
-    MODULE_CONFIG(expsim_set)
-    MODULE_CONFIG(hud_style)
-    MODULE_CONFIG(hud_batt)
-    MODULE_CONFIG(print_size)
-    MODULE_CONFIG(date_stamp)
-    MODULE_CONFIG(recent_films)
-    MODULE_CONFIG(page_fade)
-    MODULE_CONFIG(canon_hidden)
     MODULE_CONFIG(roll_loaded)
     MODULE_CONFIG(roll_number)
     MODULE_CONFIG(roll_film)
@@ -41,12 +30,13 @@ MODULE_CONFIGS_START()
     MODULE_CONFIG(last_file_number)
     MODULE_CONFIG(roll_folder)
     MODULE_CONFIG(need_wind)
+    MODULE_CONFIG(date_stamp)
+    MODULE_CONFIG(print_size)
 MODULE_CONFIGS_END()
 
-/* A camera that ran the built-in film OS kept these settings in Magic
- * Lantern's own magic.cfg (config.c). The first time the module starts (no
- * FILMOS.CFG yet) it takes them from there, so a roll in the camera carries
- * on where it was. */
+/* The built-in film OS kept these settings in Magic Lantern's own magic.cfg (config.c). The first
+ * time the module starts (no FILMOS.CFG yet) it takes them from there, so the roll in the camera
+ * carries on where it was. */
 static void config_from_core()
 {
     char path[64];
@@ -87,13 +77,6 @@ static void config_from_core()
     dbg("init: %d settings taken from magic.cfg (first start as a module)", taken);
 }
 
-/* errno for the maths library linked into the module (fork/module/Makefile) */
-int *fos_errno(void)
-{
-    static int e;
-    return &e;
-}
-
 static unsigned int filmos_init()
 {
     config_from_core();
@@ -107,8 +90,8 @@ static unsigned int filmos_deinit()
     return 0;
 }
 
-/* What the core's shim (filmhook.c) calls. Not static: the module loader
- * hands these to the core by name once the module is loaded. */
+/* What the core's shim (src/filmhook.c) calls. Not static: the core finds them by name once the
+ * module is loaded. */
 int filmos_key_used(struct event *event)
 {
     return handle_filmroll_keys(event) == 0;
