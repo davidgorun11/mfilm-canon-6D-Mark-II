@@ -1603,8 +1603,11 @@ static unsigned int lv_key(unsigned int key)
         {
             dbg("key: home");
             open_ui(FOS_OPEN_HOME);
+            return 0;
         }
-        return 0;
+        /* in Canon's menus (gui_state not idle) Trash is Canon's: low-level format's tick, erase ...
+         * as Magic Lantern itself leaves it (handle_ml_menu_erase) */
+        return gui_state == GUISTATE_IDLE ? 0 : 1;
     }
 
     /* PLAY: the developed prints, never Canon's playback of what the
