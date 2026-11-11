@@ -19,6 +19,7 @@
 #include <string.h>
 
 #define FLOOR_Y     262
+#define MID_DROP    14      /* px the middle canister stands below the others' floor */
 #define DOTS_Y      290
 #define BRAND_Y     320
 #define NAME_Y      366
@@ -223,14 +224,15 @@ static void pose_of(float d, struct fos_can_pose *p, float lift, float spread)
     float light = 1.0f - n * 0.42f - f * 0.30f;
     float rot = d * 0.085f;                         /* turns: faces the middle */
     p->cx8 = (int) (x * 256);
-    p->floor_y = (int) (FLOOR_Y - n * 12 - f * 8 - lift);
+    /* the middle one stands lower, clear of the tabs above (6D2 fork); the sides as they were */
+    p->floor_y = (int) (FLOOR_Y + (1 - n) * MID_DROP - n * 12 - f * 8 - lift);
     p->scale = (int) (scale * 256);
     p->rot = (int) (rot * 65536);
     p->light = (int) (clampf(light, 0, 1) * 256);
     p->leader = 256;
     p->fast = absf(pos.v) > 1.2f;      /* films a second: too quick to see the fine print */
-    /* the middle one is mirrored in the floor, fading as it leaves */
-    p->reflect = (int) (64 * clampf(1.25f - absf(d), 0, 1));
+    /* no mirror image in the floor: on the 6D2's screen it showed as a band of the label's colours */
+    p->reflect = 0;
 }
 
 /* a soft contact shadow under a canister */
